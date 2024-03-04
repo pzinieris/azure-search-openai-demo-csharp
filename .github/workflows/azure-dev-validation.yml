@@ -10,11 +10,6 @@ on:
     paths:
       - "infra/**"
 
-permissions:
-  contents: read
-  actions: read
-  security-events: write
-
 jobs:
   build:
 
@@ -36,7 +31,7 @@ jobs:
           tools: templateanalyzer
 
       - name: Upload alerts to Security tab
-        uses: github/codeql-action/upload-sarif@v3
+        uses: github/codeql-action/upload-sarif@v2
         if: github.repository == 'Azure-Samples/azure-search-openai-demo-csharp'
         with:
           sarif_file: ${{ steps.msdo.outputs.sarifFile }}

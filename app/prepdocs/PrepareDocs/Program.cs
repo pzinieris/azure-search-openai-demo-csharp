@@ -14,8 +14,7 @@
             await embedService.EnsureSearchIndexAsync(options.SearchIndexName);
 
             Matcher matcher = new();
-            // From bash, the single quotes surrounding the path (to avoid expansion of the wildcard), are included in the argument value.
-            matcher.AddInclude(options.Files.Replace("'", string.Empty));
+            matcher.AddInclude(options.Files);
 
             var results = matcher.Execute(
                 new DirectoryInfoWrapper(
