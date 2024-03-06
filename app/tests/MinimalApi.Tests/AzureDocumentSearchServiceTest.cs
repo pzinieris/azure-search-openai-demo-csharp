@@ -1,6 +1,4 @@
-﻿// Copyright (c) Microsoft. All rights reserved.
-
-using Azure.AI.OpenAI;
+﻿using Azure.AI.OpenAI;
 using Azure.Identity;
 using Azure.Search.Documents;
 using FluentAssertions;
@@ -67,9 +65,10 @@ public class AzureDocumentSearchServiceTest
         var index = Environment.GetEnvironmentVariable("AZURE_SEARCH_INDEX") ?? throw new InvalidOperationException();
         var searchServceEndpoint = Environment.GetEnvironmentVariable("AZURE_SEARCH_SERVICE_ENDPOINT") ?? throw new InvalidOperationException();
         var computerVisionEndpoint = Environment.GetEnvironmentVariable("AZURE_COMPUTER_VISION_ENDPOINT") ?? throw new InvalidOperationException();
+        var apiVersion = Environment.GetEnvironmentVariable("AZURE_COMPUTER_VISION_API_VERSION") ?? "2024-02-01";
         var searchClient = new SearchClient(new Uri(searchServceEndpoint), index, new DefaultAzureCredential());
         using var httpClient = new System.Net.Http.HttpClient();
-        var computerVisionService = new AzureComputerVisionService(httpClient, computerVisionEndpoint, new DefaultAzureCredential());
+        var computerVisionService = new AzureComputerVisionService(httpClient, computerVisionEndpoint, apiVersion, new DefaultAzureCredential());
         var service = new AzureSearchService(searchClient);
 
         var query = "financial report";

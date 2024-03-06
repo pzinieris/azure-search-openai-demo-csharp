@@ -1,6 +1,4 @@
-﻿// Copyright (c) Microsoft. All rights reserved.
-
-using Azure.AI.OpenAI;
+﻿using Azure.AI.OpenAI;
 using Azure.Identity;
 using Azure.Search.Documents;
 using FluentAssertions;
@@ -83,8 +81,9 @@ public class ReadRetrieveReadChatServiceTest
         var openAIClient = new OpenAIClient(openAIAPIKey);
 
         var azureComputerVisionEndpoint = Environment.GetEnvironmentVariable("AZURE_COMPUTER_VISION_ENDPOINT") ?? throw new InvalidOperationException();
+        var apiVersion = Environment.GetEnvironmentVariable("AZURE_COMPUTER_VISION_API_VERSION") ?? "2024-02-01";
         using var httpClient = new HttpClient();
-        var azureComputerVisionService = new AzureComputerVisionService(httpClient, azureComputerVisionEndpoint, azureCredential);
+        var azureComputerVisionService = new AzureComputerVisionService(httpClient, azureComputerVisionEndpoint, apiVersion, azureCredential);
 
         var configuration = Substitute.For<IConfiguration>();
         configuration["UseAOAI"].Returns("false");

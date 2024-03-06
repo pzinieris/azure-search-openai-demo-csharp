@@ -1,6 +1,4 @@
-﻿// Copyright (c) Microsoft. All rights reserved.
-
-namespace MinimalApi.Extensions;
+﻿namespace MinimalApi.Extensions;
 
 internal static class ServiceCollectionExtensions
 {
@@ -61,7 +59,10 @@ internal static class ServiceCollectionExtensions
                 var azureOpenAiServiceEndpoint = config["AzureOpenAiServiceEndpoint"];
                 ArgumentNullException.ThrowIfNullOrEmpty(azureOpenAiServiceEndpoint);
 
-                var openAIClient = new OpenAIClient(new Uri(azureOpenAiServiceEndpoint), s_azureCredential);
+                var openAIClient = new OpenAIClient(
+                    new Uri(azureOpenAiServiceEndpoint),
+                    //new AzureKeyCredential(azureOpenAiApiKey));
+                    s_azureCredential);
 
                 return openAIClient;
             }
@@ -86,9 +87,16 @@ internal static class ServiceCollectionExtensions
             {
                 var azureComputerVisionServiceEndpoint = config["AzureComputerVisionServiceEndpoint"];
                 ArgumentNullException.ThrowIfNullOrEmpty(azureComputerVisionServiceEndpoint);
+
+                var azureComputerVisionServiceApiVersion = config["AzureComputerVisionServiceApiVersion"];
+                if (string.IsNullOrWhiteSpace(azureComputerVisionServiceApiVersion))
+                {
+                    azureComputerVisionServiceApiVersion = "2024-02-01";
+                }
+
                 var httpClient = sp.GetRequiredService<IHttpClientFactory>().CreateClient();
 
-                var visionService = new AzureComputerVisionService(httpClient, azureComputerVisionServiceEndpoint, s_azureCredential);
+                var visionService = new AzureComputerVisionService(httpClient, azureComputerVisionServiceEndpoint, azureComputerVisionServiceApiVersion, s_azureCredential);
                 return new ReadRetrieveReadChatService(searchClient, openAIClient, config, visionService, s_azureCredential);
             }
             else
