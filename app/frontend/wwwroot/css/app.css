@@ -237,6 +237,11 @@ button {
     animation: active 1.5s infinite;
 }
 
+a {
+    text-decoration: underline;
+    color: -webkit-link;
+}
+
 @keyframes active {
     0% {
         -webkit-box-shadow: 0 0 0 0 rgba(118,106,231,0.4);
