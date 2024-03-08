@@ -192,6 +192,7 @@
         GetLazyClientAsync<IComputerVisionService?>(options, s_openAILock, async o =>
         {
             await Task.CompletedTask;
+
             var endpoint = o.ComputerVisionServiceEndpoint;
 
             if (string.IsNullOrEmpty(endpoint))
@@ -199,7 +200,13 @@
                 return null;
             }
 
-            return new AzureComputerVisionService(new HttpClient(), endpoint, DefaultCredential);
+            var azureComputerVisionServiceApiVersion = o.ComputerVisionServiceApiVersion;
+            if (string.IsNullOrWhiteSpace(azureComputerVisionServiceApiVersion))
+            {
+                azureComputerVisionServiceApiVersion = "2024-02-01";
+            }
+
+            return new AzureComputerVisionService(new HttpClient(), endpoint, azureComputerVisionServiceApiVersion, DefaultCredential);
         });
 
     #endregion Factory Methods

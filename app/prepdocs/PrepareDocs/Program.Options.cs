@@ -42,6 +42,9 @@
     private static readonly Option<string> s_computerVisionServiceEndpoint =
         new(name: "--computervisionendpoint", description: "Optional. The Azure Computer Vision service endpoint which will be used to vectorize image and query");
 
+    private static readonly Option<string> s_computerVisionServiceApiVersion =
+        new(name: "--computervisionapiversion", description: "Optional. The Azure Computer Vision service api version which will be used to vectorize image and query");
+
     private static readonly Option<bool> s_verbose =
        new(aliases: new[] { "--verbose", "-v" }, description: "Verbose output");
 
@@ -65,6 +68,7 @@
             s_removeAll,
             s_formRecognizerServiceEndpoint,
             s_computerVisionServiceEndpoint,
+            s_computerVisionServiceApiVersion,
             s_verbose
         };
 
@@ -83,6 +87,7 @@
             RemoveAll: context.ParseResult.GetValueForOption(s_removeAll),
             FormRecognizerServiceEndpoint: context.ParseResult.GetValueForOption(s_formRecognizerServiceEndpoint),
             ComputerVisionServiceEndpoint: context.ParseResult.GetValueForOption(s_computerVisionServiceEndpoint),
+            ComputerVisionServiceApiVersion: context.ParseResult.GetValueForOption(s_computerVisionServiceApiVersion),
             Verbose: context.ParseResult.GetValueForOption(s_verbose),
             Console: context.Console);
 }
