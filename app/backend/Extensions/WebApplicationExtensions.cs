@@ -1,4 +1,6 @@
-﻿namespace MinimalApi.Extensions;
+﻿using Shared.Enum;
+
+namespace MinimalApi.Extensions;
 
 internal static class WebApplicationExtensions
 {
@@ -103,7 +105,7 @@ internal static class WebApplicationExtensions
         BlobContainerClient client,
         [EnumeratorCancellation] CancellationToken cancellationToken)
     {
-        await foreach (var blob in client.GetBlobsAsync(cancellationToken: cancellationToken))
+        await foreach (var blob in client.GetBlobsAsync(BlobTraits.Metadata, cancellationToken: cancellationToken))
         {
             if (blob is not null and { Deleted: false })
             {
