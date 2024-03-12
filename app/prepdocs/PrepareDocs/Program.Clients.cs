@@ -1,4 +1,7 @@
-﻿internal static partial class Program
+﻿using Shared.Services;
+using Shared.Services.Interfaces;
+
+internal static partial class Program
 {
     #region Private Fields
 
@@ -206,7 +209,14 @@
                 azureComputerVisionServiceApiVersion = "2024-02-01";
             }
 
-            return new AzureComputerVisionService(new HttpClient(), endpoint, azureComputerVisionServiceApiVersion, DefaultCredential);
+            var azureComputerVisionServiceModelVersion = o.ComputerVisionServiceModelVersion;
+            if (string.IsNullOrWhiteSpace(azureComputerVisionServiceModelVersion))
+            {
+                azureComputerVisionServiceModelVersion = "2023-04-15";
+            }
+
+            return new AzureComputerVisionService(new HttpClient(), endpoint,
+                azureComputerVisionServiceApiVersion, azureComputerVisionServiceModelVersion, DefaultCredential);
         });
 
     #endregion Factory Methods

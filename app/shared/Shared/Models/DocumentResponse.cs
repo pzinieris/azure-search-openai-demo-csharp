@@ -1,4 +1,6 @@
-﻿namespace Shared.Models;
+﻿using Shared.Enum;
+
+namespace Shared.Models;
 
 public record class DocumentResponse(
     string Name,

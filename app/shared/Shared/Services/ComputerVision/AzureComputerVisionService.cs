@@ -2,15 +2,20 @@
 using System.Text;
 using System.Text.Json;
 using Azure.Core;
+using Shared.Services.Interfaces;
 
-public class AzureComputerVisionService(HttpClient client, string endPoint, string apiVersion, TokenCredential tokenCredential) : IComputerVisionService
+namespace Shared.Services;
+
+public class AzureComputerVisionService(HttpClient client, string endPoint, string apiVersion, string modelVersion, TokenCredential tokenCredential) : IComputerVisionService
 {
     public int Dimension => 1024;
 
     // add virtual keyword to make it mockable
     public async Task<ImageEmbeddingResponse> VectorizeImageAsync(string imagePathOrUrl, CancellationToken ct = default)
     {
-        var api = $"{endPoint}/computervision/retrieval:vectorizeImage?api-version=2023-02-01-preview&modelVersion=latest";
+        //var api = $"{endPoint}/computervision/retrieval:vectorizeImage?api-version=2023-02-01-preview&modelVersion=latest";
+        var api = Path.Combine(endPoint, "/computervision/retrieval:vectorizeImage?api-version=2023-02-01-preview&model-version=latest");
+
         var token = await tokenCredential.GetTokenAsync(new TokenRequestContext(new[] { "https://cognitiveservices.azure.com/.default" }), ct);
         // first try to read as local file
         if (File.Exists(imagePathOrUrl))
@@ -64,8 +69,9 @@ public class AzureComputerVisionService(HttpClient client, string endPoint, stri
 
     public virtual async Task<ImageEmbeddingResponse> VectorizeTextAsync(string text, CancellationToken ct = default)
     {
-        //var api = $"{endPoint}/computervision/retrieval:vectorizeText?api-version=2023-02-01-preview&modelVersion=latest";
-        var api = $"{endPoint}/computervision/retrieval:vectorizeText?api-version={apiVersion}&modelVersion=latest";
+        //var api = $"{endPoint}/computervision/retrieval:vectorizeText?api-version=2023-02-01-preview&model-version=latest";
+        //var api = $"{endPoint}/computervision/retrieval:vectorizeText?api-version={apiVersion}&model-version={modelVersion}";
+        var api = Path.Combine(endPoint, $"computervision/retrieval:vectorizeText?api-version={apiVersion}&model-version={modelVersion}");
 
         var token = await tokenCredential.GetTokenAsync(new TokenRequestContext(new[] { "https://cognitiveservices.azure.com/.default" }), ct);
         using var request = new HttpRequestMessage(HttpMethod.Post, api);

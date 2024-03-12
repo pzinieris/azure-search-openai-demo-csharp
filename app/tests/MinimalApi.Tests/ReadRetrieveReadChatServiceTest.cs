@@ -3,9 +3,12 @@ using Azure.Identity;
 using Azure.Search.Documents;
 using FluentAssertions;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Logging;
 using MinimalApi.Services;
 using NSubstitute;
 using Shared.Models;
+using Shared.Services;
+using Shared.Services.Interfaces;
 
 namespace MinimalApi.Tests;
 public class ReadRetrieveReadChatServiceTest
@@ -16,6 +19,8 @@ public class ReadRetrieveReadChatServiceTest
         "AZURE_OPENAI_CHATGPT_DEPLOYMENT")]
     public async Task NorthwindHealthQuestionTest_TextOnlyAsync()
     {
+        var logger = Substitute.For<ILogger<ReadRetrieveReadChatService>>();
+
         var documentSearchService = Substitute.For<ISearchService>();
         documentSearchService.QueryDocumentsAsync(Arg.Any<string?>(), Arg.Any<float[]?>(), Arg.Any<RequestOverrides?>(), Arg.Any<CancellationToken>())
                 .Returns(new SupportingContentRecord[]
@@ -37,7 +42,7 @@ public class ReadRetrieveReadChatServiceTest
         configuration["AzureStorageContainer"].Returns("northwindhealth");
         configuration["UseAOAI"].Returns("true");
 
-        var chatService = new ReadRetrieveReadChatService(documentSearchService, openAIClient, configuration);
+        var chatService = new ReadRetrieveReadChatService(logger, documentSearchService, openAIClient, configuration);
 
         var history = new ChatTurn[]
         {
@@ -72,6 +77,8 @@ public class ReadRetrieveReadChatServiceTest
         "AZURE_SEARCH_SERVICE_ENDPOINT")]
     public async Task FinancialReportTestAsync()
     {
+        var logger = Substitute.For<ILogger<ReadRetrieveReadChatService>>();
+
         var azureSearchServiceEndpoint = Environment.GetEnvironmentVariable("AZURE_SEARCH_SERVICE_ENDPOINT") ?? throw new InvalidOperationException();
         var azureSearchIndex = Environment.GetEnvironmentVariable("AZURE_SEARCH_INDEX") ?? throw new InvalidOperationException();
         var azureCredential = new DefaultAzureCredential();
@@ -82,8 +89,9 @@ public class ReadRetrieveReadChatServiceTest
 
         var azureComputerVisionEndpoint = Environment.GetEnvironmentVariable("AZURE_COMPUTER_VISION_ENDPOINT") ?? throw new InvalidOperationException();
         var apiVersion = Environment.GetEnvironmentVariable("AZURE_COMPUTER_VISION_API_VERSION") ?? "2024-02-01";
+        var modelVersion = Environment.GetEnvironmentVariable("AZURE_COMPUTER_VISION_MODEL_VERSION") ?? "2023-04-15";
         using var httpClient = new HttpClient();
-        var azureComputerVisionService = new AzureComputerVisionService(httpClient, azureComputerVisionEndpoint, apiVersion, azureCredential);
+        var azureComputerVisionService = new AzureComputerVisionService(httpClient, azureComputerVisionEndpoint, apiVersion, modelVersion, azureCredential);
 
         var configuration = Substitute.For<IConfiguration>();
         configuration["UseAOAI"].Returns("false");
@@ -93,6 +101,7 @@ public class ReadRetrieveReadChatServiceTest
         configuration["AzureStorageContainer"].Returns("northwindhealth");
 
         var chatService = new ReadRetrieveReadChatService(
+            logger,
             azureSearchService,
             openAIClient,
             configuration,

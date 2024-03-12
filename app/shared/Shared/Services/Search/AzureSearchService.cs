@@ -1,6 +1,9 @@
 ﻿using Azure.Search.Documents;
 using Azure.Search.Documents.Models;
 using Shared.Models;
+using Shared.Services.Interfaces;
+
+namespace Shared.Services;
 
 public class AzureSearchService(SearchClient searchClient) : ISearchService
 {

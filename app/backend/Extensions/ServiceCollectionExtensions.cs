@@ -1,4 +1,7 @@
-﻿namespace MinimalApi.Extensions;
+﻿using Shared.Services;
+using Shared.Services.Interfaces;
+
+namespace MinimalApi.Extensions;
 
 internal static class ServiceCollectionExtensions
 {
@@ -79,10 +82,12 @@ internal static class ServiceCollectionExtensions
         services.AddSingleton<AzureBlobStorageService>();
         services.AddSingleton<ReadRetrieveReadChatService>(sp =>
         {
-            var config = sp.GetRequiredService<IConfiguration>();
-            var useGPT4V = config["UseGPT4V"] == "true";
+            var logger = sp.GetRequiredService<ILogger<ReadRetrieveReadChatService>>();
             var openAIClient = sp.GetRequiredService<OpenAIClient>();
             var searchClient = sp.GetRequiredService<ISearchService>();
+
+            var config = sp.GetRequiredService<IConfiguration>();
+            var useGPT4V = config["UseGPT4V"] == "true";
             if (useGPT4V)
             {
                 var azureComputerVisionServiceEndpoint = config["AzureComputerVisionServiceEndpoint"];
@@ -94,14 +99,21 @@ internal static class ServiceCollectionExtensions
                     azureComputerVisionServiceApiVersion = "2024-02-01";
                 }
 
+                var azureComputerVisionServiceModelVersion = config["AzureComputerVisionServiceModelVersion"];
+                if (string.IsNullOrWhiteSpace(azureComputerVisionServiceModelVersion))
+                {
+                    azureComputerVisionServiceModelVersion = "2023-04-15";
+                }
+
                 var httpClient = sp.GetRequiredService<IHttpClientFactory>().CreateClient();
 
-                var visionService = new AzureComputerVisionService(httpClient, azureComputerVisionServiceEndpoint, azureComputerVisionServiceApiVersion, s_azureCredential);
-                return new ReadRetrieveReadChatService(searchClient, openAIClient, config, visionService, s_azureCredential);
+                var visionService = new AzureComputerVisionService(httpClient, azureComputerVisionServiceEndpoint,
+                    azureComputerVisionServiceApiVersion, azureComputerVisionServiceModelVersion, s_azureCredential);
+                return new ReadRetrieveReadChatService(logger, searchClient, openAIClient, config, visionService, s_azureCredential);
             }
             else
             {
-                return new ReadRetrieveReadChatService(searchClient, openAIClient, config, tokenCredential: s_azureCredential);
+                return new ReadRetrieveReadChatService(logger, searchClient, openAIClient, config, tokenCredential: s_azureCredential);
             }
         });
 

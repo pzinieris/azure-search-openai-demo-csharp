@@ -1,4 +1,6 @@
-﻿public interface IComputerVisionService
+﻿namespace Shared.Services.Interfaces;
+
+public interface IComputerVisionService
 {
     public int Dimension { get; }
 
