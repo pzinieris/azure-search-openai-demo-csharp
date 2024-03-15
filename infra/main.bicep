@@ -156,9 +156,10 @@ param openAiChatGptDeployment string
 @description('OpenAI Embedding Model')
 param openAiEmbeddingDeployment string
 
-@description('Use GPT-4V')
-param useGpt4V bool
+@description('Use Azure Vision')
+param useVision bool
 
+@description('Azure Vision Endpoint')
 param azureComputerVisionServiceEndpoint string
 
 var abbrs = loadJsonContent('./abbreviations.json')
@@ -235,8 +236,8 @@ module keyVaultSecrets 'core/security/keyvault-secrets.bicep' = {
         value: useAOAI ? 'true' : 'false'
       }
       {
-        name: 'UseGPT4V'
-        value: useGpt4V ? 'true' : 'false'
+        name: 'UseVision'
+        value: useVision ? 'true' : 'false'
       }
     ],
     useAOAI ? [
@@ -266,7 +267,7 @@ module keyVaultSecrets 'core/security/keyvault-secrets.bicep' = {
         value: openAiEmbeddingDeployment
       }
     ],
-    useGpt4V ? [
+    useVision ? [
       {
         name: 'AzureComputerVisionServiceEndpoint'
         value: azureComputerVisionServiceEndpoint
@@ -683,5 +684,5 @@ output SERVICE_WEB_IDENTITY_NAME string = web.outputs.SERVICE_WEB_IDENTITY_NAME
 output SERVICE_WEB_NAME string = web.outputs.SERVICE_WEB_NAME
 output SERVICE_FUNCTION_IDENTITY_PRINCIPAL_ID string = function.outputs.SERVICE_FUNCTION_IDENTITY_PRINCIPAL_ID
 output USE_AOAI bool = useAOAI
-output USE_GPT4V bool = useGpt4V
+output USE_VISION bool = useVision
 output OPENAI_EMBEDDING_DEPLOYMENT string = openAiEmbeddingDeployment

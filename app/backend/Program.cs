@@ -1,9 +1,9 @@
 ﻿using Microsoft.AspNetCore.Antiforgery;
-//using Shared.Models.Settings;
+using Shared.Models.Settings;
 
 var builder = WebApplication.CreateBuilder(args);
 
-builder.Configuration.ConfigureAzureKeyVault();
+builder.Services.Configure<AppSettings>(builder.Configuration);
 
 // See: https://aka.ms/aspnetcore/swashbuckle
 builder.Services.AddEndpointsApiExplorer();
@@ -15,8 +15,6 @@ builder.Services.AddCrossOriginResourceSharing();
 builder.Services.AddAzureServices();
 builder.Services.AddAntiforgery(options => { options.HeaderName = "X-CSRF-TOKEN-HEADER"; options.FormFieldName = "X-CSRF-TOKEN-FORM"; });
 builder.Services.AddHttpClient();
-
-//builder.Services.Configure<AppSettings>(builder.Configuration);
 
 // We need to keep track of the KeyVault secrets changes
 // https://learn.microsoft.com/en-us/aspnet/core/security/key-vault-configuration?view=aspnetcore-8.0#reload-secrets

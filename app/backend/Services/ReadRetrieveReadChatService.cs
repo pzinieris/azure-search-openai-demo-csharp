@@ -1,5 +1,6 @@
 ﻿using Azure.Core;
 using Microsoft.SemanticKernel.Connectors.OpenAI;
+using Shared.Models.Settings;
 using Shared.Services.Interfaces;
 
 namespace MinimalApi.Services;
@@ -12,7 +13,7 @@ public class ReadRetrieveReadChatService
 
     private readonly ISearchService _searchClient;
     private readonly Kernel _kernel;
-    private readonly IConfiguration _configuration;
+    private readonly AppSettings _appSettings;
     private readonly IComputerVisionService? _visionService;
     private readonly TokenCredential? _tokenCredential;
 
@@ -24,14 +25,14 @@ public class ReadRetrieveReadChatService
         ILogger<ReadRetrieveReadChatService> logger,
         ISearchService searchClient,
         OpenAIClient client,
-        IConfiguration configuration,
+        AppSettings appSettings,
         IComputerVisionService? visionService = null,
         TokenCredential? tokenCredential = null)
     {
         _logger = logger;
 
         _searchClient = searchClient;
-        _configuration = configuration;
+        _appSettings = appSettings;
         _visionService = visionService;
         _tokenCredential = tokenCredential;
         
@@ -126,8 +127,8 @@ public class ReadRetrieveReadChatService
 
         // step 3
         // put together related docs and conversation history to generate answer
-        var answerChat = new ChatHistory(
-            "You are a system assistant who helps the company employees with their questions. Be brief in your answers");
+        var answerChat = new ChatHistory(@"You are a system assistant who helps the company employees with their questions. Be brief in your answers
+            You will always reply with a Markdown formatted response");
 
         // add chat history
         foreach (var turn in history)
@@ -139,7 +140,7 @@ public class ReadRetrieveReadChatService
             }
         }
 
-        if (images != null)
+        if (images != null && images.Any())
         {
             var prompt = @$"## Source ##
                 {documentContents}
@@ -166,22 +167,25 @@ public class ReadRetrieveReadChatService
         }
         else
         {
-            var prompt = @$" ## Source ##
+            var prompt = @$"Give your answer based on the quetsion provided and the Documents Source.
+                # Documents Source
                 {documentContents}
-                ## End ##
+                # End of Documents Source
 
-                You answer needs to be a json object with the following format.
+                # Format of the response
+                You answer needs to be a json object with the following format. Don't put your answer between ```json or ```, return the json object directly.
                 {{
                     ""answer"": // the answer to the question, add a source reference to the end of each sentence. e.g. Apple is a fruit [reference1.pdf][reference2.pdf]. If no source available, put the answer as I don't know.
                     ""thoughts"": // brief thoughts on how you came up with the answer, e.g. what sources you used, what you thought about, etc.
                 }}";
+                //Don't put your answer between ```json or ```, return the json object directly.";
             answerChat.AddUserMessage(prompt);
         }
 
         var promptExecutingSetting = new OpenAIPromptExecutionSettings
         {
             MaxTokens = 1024,
-            Temperature = overrides?.Temperature ?? 0.7,
+            Temperature = overrides?.Temperature ?? 0.7
         };
 
         //// Also check the below
@@ -200,7 +204,8 @@ public class ReadRetrieveReadChatService
         var answerJson = answer.Content ?? throw new InvalidOperationException("Failed to get search query");
         _logger.LogInformation("""Answer retrived from 'GetChatMessageContentAsync': '{Answer}'""", answerJson);
 
-        var answerObject = JsonSerializer.Deserialize<JsonElement>(answerJson);
+        //var answerObject = JsonSerializer.Deserialize<JsonElement>(answerJson);
+        var answerObject = GetJsonElement(answerJson);
         var ans = answerObject.GetProperty("answer").GetString() ?? throw new InvalidOperationException("Failed to get answer");
         var thoughts = answerObject.GetProperty("thoughts").GetString() ?? throw new InvalidOperationException("Failed to get thoughts");
 
@@ -214,7 +219,7 @@ public class ReadRetrieveReadChatService
                 {ans}
 
                 # Format of the response
-                Return the follow-up question as a json string list.
+                Return the follow-up question as a json string list. Don't put your answer between ```json and ```, return the json string directly.
                 e.g.
                 [
                     ""What is the deductible?"",
@@ -243,7 +248,7 @@ public class ReadRetrieveReadChatService
             Images: images,
             Answer: ans,
             Thoughts: thoughts,
-            CitationBaseUrl: _configuration.ToCitationBaseUrl());
+            CitationBaseUrl: _appSettings.ToCitationBaseUrl());
     }
 
     #endregion Public Methods
@@ -254,13 +259,13 @@ public class ReadRetrieveReadChatService
     {
         var kernelBuilder = Kernel.CreateBuilder();
 
-        if (_configuration["UseAOAI"] == "false")
+        if (!_appSettings.UseAOAI)
         {
-            var deployedModelName = _configuration["OpenAiChatGptDeployment"];
+            var deployedModelName = _appSettings.OpenAiChatGptDeployment;
             ArgumentNullException.ThrowIfNullOrWhiteSpace(deployedModelName);
             kernelBuilder = kernelBuilder.AddOpenAIChatCompletion(deployedModelName, client);
 
-            var embeddingModelName = _configuration["OpenAiEmbeddingDeployment"];
+            var embeddingModelName = _appSettings.OpenAiEmbeddingDeployment;
             ArgumentNullException.ThrowIfNullOrWhiteSpace(embeddingModelName);
 #pragma warning disable SKEXP0011 // Type is for evaluation purposes only and is subject to change or removal in future updates. Suppress this diagnostic to proceed.
             kernelBuilder = kernelBuilder.AddOpenAITextEmbeddingGeneration(embeddingModelName, client);
@@ -268,11 +273,11 @@ public class ReadRetrieveReadChatService
         }
         else
         {
-            var deployedModelName = _configuration["AzureOpenAiChatGptDeployment"];
+            var deployedModelName = _appSettings.AzureOpenAiChatGptDeployment;
             ArgumentNullException.ThrowIfNullOrWhiteSpace(deployedModelName);
             kernelBuilder = kernelBuilder.AddAzureOpenAIChatCompletion(deployedModelName, client);
 
-            var embeddingModelName = _configuration["AzureOpenAiEmbeddingDeployment"];
+            var embeddingModelName = _appSettings.AzureOpenAiEmbeddingDeployment;
             if (!string.IsNullOrEmpty(embeddingModelName))
             {
 #pragma warning disable SKEXP0011 // Type is for evaluation purposes only and is subject to change or removal in future updates. Suppress this diagnostic to proceed.
@@ -286,6 +291,27 @@ public class ReadRetrieveReadChatService
         //kernelBuilder.Plugins.AddFromPromptDirectory("dir_name");
 
         return kernelBuilder.Build();
+    }
+
+    private JsonElement GetJsonElement(string aiMessage)
+    {
+        JsonElement answerObject;
+        try
+        {
+            answerObject = JsonSerializer.Deserialize<JsonElement>(aiMessage);
+        }
+        catch
+        {
+            var json = @$"
+                {{
+                    ""answer"": ""{aiMessage}""
+                    ""thoughts"": ""No thoughts provided""
+                }}";
+
+            answerObject = JsonSerializer.Deserialize<JsonElement>(json);
+        }
+
+        return answerObject;
     }
 
     #endregion Private Methods
