@@ -162,6 +162,12 @@ param useVision bool
 @description('Azure Vision Endpoint')
 param azureComputerVisionServiceEndpoint string
 
+@description('Azure Vision API Version')
+param azureComputerVisionServiceApiVersion string
+
+@description('Azure Vision Model Version')
+param azureComputerVisionServiceModelVersion string
+
 var abbrs = loadJsonContent('./abbreviations.json')
 var resourceToken = toLower(uniqueString(subscription().id, environmentName, location))
 
@@ -271,6 +277,14 @@ module keyVaultSecrets 'core/security/keyvault-secrets.bicep' = {
       {
         name: 'AzureComputerVisionServiceEndpoint'
         value: azureComputerVisionServiceEndpoint
+      }
+	  {
+        name: 'AzureComputerVisionServiceApiVersion'
+        value: azureComputerVisionServiceApiVersion
+      }
+	  {
+        name: 'AzureComputerVisionServiceModelVersion'
+        value: azureComputerVisionServiceModelVersion
       }
     ] : [])
   }

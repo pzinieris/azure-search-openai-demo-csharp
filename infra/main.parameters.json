@@ -109,6 +109,12 @@
     },
     "azureComputerVisionServiceEndpoint": {
       "value": "https://pztestaisearch.search.windows.net/"
+    },
+	"azureComputerVisionServiceApiVersion": {
+      "value": "${VISION_API_VERSION=2024-02-01}"
+    },
+	"azureComputerVisionServiceModelVersion": {
+      "value": "${VISION_MODEL_VERSION=2023-04-15}"
     }
   }
 }
