@@ -1,61 +1,47 @@
-﻿// Copyright (c) Microsoft. All rights reserved.
-
-using Azure.Core;
+﻿using Azure.Core;
 using Microsoft.SemanticKernel.Connectors.OpenAI;
+using Shared.Models.Settings;
+using Shared.Services.Interfaces;
 
 namespace MinimalApi.Services;
 
 public class ReadRetrieveReadChatService
 {
+    #region Private Fields
+
+    private readonly ILogger<ReadRetrieveReadChatService> _logger;
+
     private readonly ISearchService _searchClient;
     private readonly Kernel _kernel;
-    private readonly IConfiguration _configuration;
+    private readonly AppSettings _appSettings;
     private readonly IComputerVisionService? _visionService;
     private readonly TokenCredential? _tokenCredential;
 
+    #endregion Private Fields
+
+    #region Constructor
+
     public ReadRetrieveReadChatService(
+        ILogger<ReadRetrieveReadChatService> logger,
         ISearchService searchClient,
         OpenAIClient client,
-        IConfiguration configuration,
+        AppSettings appSettings,
         IComputerVisionService? visionService = null,
         TokenCredential? tokenCredential = null)
     {
+        _logger = logger;
+
         _searchClient = searchClient;
-        var kernelBuilder = Kernel.CreateBuilder();
-
-        if (configuration["UseAOAI"] == "false")
-        {
-            var deployment = configuration["OpenAiChatGptDeployment"];
-            ArgumentNullException.ThrowIfNullOrWhiteSpace(deployment);
-            kernelBuilder = kernelBuilder.AddOpenAIChatCompletion(deployment, client);
-
-            var embeddingModelName = configuration["OpenAiEmbeddingDeployment"];
-            ArgumentNullException.ThrowIfNullOrWhiteSpace(embeddingModelName);
-#pragma warning disable SKEXP0011 // Type is for evaluation purposes only and is subject to change or removal in future updates. Suppress this diagnostic to proceed.
-            kernelBuilder = kernelBuilder.AddOpenAITextEmbeddingGeneration(embeddingModelName, client);
-#pragma warning restore SKEXP0011 // Type is for evaluation purposes only and is subject to change or removal in future updates. Suppress this diagnostic to proceed.
-        }
-        else
-        {
-            var deployedModelName = configuration["AzureOpenAiChatGptDeployment"];
-            ArgumentNullException.ThrowIfNullOrWhiteSpace(deployedModelName);
-            var embeddingModelName = configuration["AzureOpenAiEmbeddingDeployment"];
-            if (!string.IsNullOrEmpty(embeddingModelName))
-            {
-                var endpoint = configuration["AzureOpenAiServiceEndpoint"];
-                ArgumentNullException.ThrowIfNullOrWhiteSpace(endpoint);
-#pragma warning disable SKEXP0011 // Type is for evaluation purposes only and is subject to change or removal in future updates. Suppress this diagnostic to proceed.
-                kernelBuilder = kernelBuilder.AddAzureOpenAITextEmbeddingGeneration(embeddingModelName, endpoint, tokenCredential ?? new DefaultAzureCredential());
-#pragma warning restore SKEXP0011 // Type is for evaluation purposes only and is subject to change or removal in future updates. Suppress this diagnostic to proceed.
-                kernelBuilder = kernelBuilder.AddAzureOpenAIChatCompletion(deployedModelName, endpoint, tokenCredential ?? new DefaultAzureCredential());
-            }
-        }
-
-        _kernel = kernelBuilder.Build();
-        _configuration = configuration;
+        _appSettings = appSettings;
         _visionService = visionService;
         _tokenCredential = tokenCredential;
+        
+        _kernel = GetSemanticKernel(client);        
     }
+
+    #endregion Constructor
+
+    #region Public Methods
 
     public async Task<ApproachResponse> ReplyAsync(
         ChatTurn[] history,
@@ -83,21 +69,34 @@ public class ReadRetrieveReadChatService
 #pragma warning restore SKEXP0001 // Type is for evaluation purposes only and is subject to change or removal in future updates. Suppress this diagnostic to proceed.
         }
 
+        //_kernel.InvokePromptAsync
+        //_kernel.CreatePluginFromPromptDirectory
+        
         // step 1
         // use llm to get query if retrieval mode is not vector
         string? query = null;
         if (overrides?.RetrievalMode != RetrievalMode.Vector)
         {
-            var getQueryChat = new ChatHistory(@"You are a helpful AI assistant, generate search query for followup question.
-Make your respond simple and precise. Return the query only, do not return any other text.
-e.g.
-Northwind Health Plus AND standard plan.
-standard plan AND dental AND employee benefit.
-");
+            var getQueryChat = new ChatHistory(
+                @"You are a helpful AI assistant, generate search query for followup question.
+                Make your respond simple and precise. Return the query only, do not return any other text.
+                e.g.
+                Northwind Health Plus AND standard plan.
+                standard plan AND dental AND employee benefit.
+                ");
+
+            //// Enable auto function calling
+            //OpenAIPromptExecutionSettings openAIPromptExecutionSettings = new()
+            //{
+            //    ToolCallBehavior = ToolCallBehavior.AutoInvokeKernelFunctions
+            //};
 
             getQueryChat.AddUserMessage(question);
             var result = await chat.GetChatMessageContentAsync(
                 getQueryChat,
+                //// Enable auto function calling
+                //executionSettings: openAIPromptExecutionSettings,
+                //kernel: _kernel,
                 cancellationToken: cancellationToken);
 
             query = result.Content ?? throw new InvalidOperationException("Failed to get search query");
@@ -128,8 +127,8 @@ standard plan AND dental AND employee benefit.
 
         // step 3
         // put together related docs and conversation history to generate answer
-        var answerChat = new ChatHistory(
-            "You are a system assistant who helps the company employees with their questions. Be brief in your answers");
+        var answerChat = new ChatHistory(@"You are a system assistant who helps the company employees with their questions. Be brief in your answers
+            You will always reply with a Markdown formatted response");
 
         // add chat history
         foreach (var turn in history)
@@ -141,8 +140,7 @@ standard plan AND dental AND employee benefit.
             }
         }
 
-
-        if (images != null)
+        if (images != null && images.Any())
         {
             var prompt = @$"## Source ##
                 {documentContents}
@@ -169,31 +167,45 @@ standard plan AND dental AND employee benefit.
         }
         else
         {
-            var prompt = @$" ## Source ##
+            var prompt = @$"Give your answer based on the quetsion provided and the Documents Source.
+                # Documents Source
                 {documentContents}
-                ## End ##
+                # End of Documents Source
 
-                You answer needs to be a json object with the following format.
+                # Format of the response
+                You answer needs to be a json object with the following format. Don't put your answer between ```json or ```, return the json object directly.
                 {{
                     ""answer"": // the answer to the question, add a source reference to the end of each sentence. e.g. Apple is a fruit [reference1.pdf][reference2.pdf]. If no source available, put the answer as I don't know.
                     ""thoughts"": // brief thoughts on how you came up with the answer, e.g. what sources you used, what you thought about, etc.
                 }}";
+                //Don't put your answer between ```json or ```, return the json object directly.";
             answerChat.AddUserMessage(prompt);
         }
 
         var promptExecutingSetting = new OpenAIPromptExecutionSettings
         {
             MaxTokens = 1024,
-            Temperature = overrides?.Temperature ?? 0.7,
+            Temperature = overrides?.Temperature ?? 0.7
         };
+
+        //// Also check the below
+        //var stream = chat.GetStreamingChatMessageContentsAsync(....)
+        //await foreach (var content in stream)
+        //{
+        //    yield return content.Content;
+        //}
 
         // get answer
         var answer = await chat.GetChatMessageContentAsync(
             answerChat,
             promptExecutingSetting,
             cancellationToken: cancellationToken);
+
         var answerJson = answer.Content ?? throw new InvalidOperationException("Failed to get search query");
-        var answerObject = JsonSerializer.Deserialize<JsonElement>(answerJson);
+        _logger.LogInformation("""Answer retrived from 'GetChatMessageContentAsync': '{Answer}'""", answerJson);
+
+        //var answerObject = JsonSerializer.Deserialize<JsonElement>(answerJson);
+        var answerObject = GetJsonElement(answerJson);
         var ans = answerObject.GetProperty("answer").GetString() ?? throw new InvalidOperationException("Failed to get answer");
         var thoughts = answerObject.GetProperty("thoughts").GetString() ?? throw new InvalidOperationException("Failed to get thoughts");
 
@@ -207,7 +219,7 @@ standard plan AND dental AND employee benefit.
                 {ans}
 
                 # Format of the response
-                Return the follow-up question as a json string list.
+                Return the follow-up question as a json string list. Don't put your answer between ```json and ```, return the json string directly.
                 e.g.
                 [
                     ""What is the deductible?"",
@@ -220,6 +232,8 @@ standard plan AND dental AND employee benefit.
                 cancellationToken: cancellationToken);
 
             var followUpQuestionsJson = followUpQuestions.Content ?? throw new InvalidOperationException("Failed to get search query");
+            _logger.LogInformation("""Answer retrived from 'GetChatMessageContentAsync': '{Answer}'""", followUpQuestionsJson);
+
             var followUpQuestionsObject = JsonSerializer.Deserialize<JsonElement>(followUpQuestionsJson);
             var followUpQuestionsList = followUpQuestionsObject.EnumerateArray().Select(x => x.GetString()).ToList();
 
@@ -234,6 +248,71 @@ standard plan AND dental AND employee benefit.
             Images: images,
             Answer: ans,
             Thoughts: thoughts,
-            CitationBaseUrl: _configuration.ToCitationBaseUrl());
+            CitationBaseUrl: _appSettings.ToCitationBaseUrl());
     }
+
+    #endregion Public Methods
+
+    #region Private Methods
+
+    private Kernel GetSemanticKernel(OpenAIClient client)
+    {
+        var kernelBuilder = Kernel.CreateBuilder();
+
+        if (!_appSettings.UseAOAI)
+        {
+            var deployedModelName = _appSettings.OpenAiChatGptDeployment;
+            ArgumentNullException.ThrowIfNullOrWhiteSpace(deployedModelName);
+            kernelBuilder = kernelBuilder.AddOpenAIChatCompletion(deployedModelName, client);
+
+            var embeddingModelName = _appSettings.OpenAiEmbeddingDeployment;
+            ArgumentNullException.ThrowIfNullOrWhiteSpace(embeddingModelName);
+#pragma warning disable SKEXP0011 // Type is for evaluation purposes only and is subject to change or removal in future updates. Suppress this diagnostic to proceed.
+            kernelBuilder = kernelBuilder.AddOpenAITextEmbeddingGeneration(embeddingModelName, client);
+#pragma warning restore SKEXP0011 // Type is for evaluation purposes only and is subject to change or removal in future updates. Suppress this diagnostic to proceed.
+        }
+        else
+        {
+            var deployedModelName = _appSettings.AzureOpenAiChatGptDeployment;
+            ArgumentNullException.ThrowIfNullOrWhiteSpace(deployedModelName);
+            kernelBuilder = kernelBuilder.AddAzureOpenAIChatCompletion(deployedModelName, client);
+
+            var embeddingModelName = _appSettings.AzureOpenAiEmbeddingDeployment;
+            if (!string.IsNullOrEmpty(embeddingModelName))
+            {
+#pragma warning disable SKEXP0011 // Type is for evaluation purposes only and is subject to change or removal in future updates. Suppress this diagnostic to proceed.
+                kernelBuilder = kernelBuilder.AddAzureOpenAITextEmbeddingGeneration(embeddingModelName, client);
+#pragma warning restore SKEXP0011 // Type is for evaluation purposes only and is subject to change or removal in future updates. Suppress this diagnostic to proceed.
+            }
+        }
+
+        // using Microsoft.SemanticKernel.CoreSkills;
+        //kernelBuilder.Plugins.AddFromType<TimePlugin>();
+        //kernelBuilder.Plugins.AddFromPromptDirectory("dir_name");
+
+        return kernelBuilder.Build();
+    }
+
+    private JsonElement GetJsonElement(string aiMessage)
+    {
+        JsonElement answerObject;
+        try
+        {
+            answerObject = JsonSerializer.Deserialize<JsonElement>(aiMessage);
+        }
+        catch
+        {
+            var json = @$"
+                {{
+                    ""answer"": ""{aiMessage}""
+                    ""thoughts"": ""No thoughts provided""
+                }}";
+
+            answerObject = JsonSerializer.Deserialize<JsonElement>(json);
+        }
+
+        return answerObject;
+    }
+
+    #endregion Private Methods
 }

@@ -1,4 +1,8 @@
-﻿namespace MinimalApi.Extensions;
+﻿using Microsoft.Extensions.Options;
+using Shared.Enum;
+using Shared.Models.Settings;
+
+namespace MinimalApi.Extensions;
 
 internal static class WebApplicationExtensions
 {
@@ -37,10 +41,11 @@ internal static class WebApplicationExtensions
     private static async IAsyncEnumerable<ChatChunkResponse> OnPostChatPromptAsync(
         PromptRequest prompt,
         OpenAIClient client,
-        IConfiguration config,
+        IOptions<AppSettings> options,
         [EnumeratorCancellation] CancellationToken cancellationToken)
     {
-        var deploymentId = config["AzureOpenAiChatGptDeployment"];
+        var deploymentId = options.Value.AzureOpenAiChatGptDeployment;
+
         var response = await client.GetChatCompletionsStreamingAsync(
             new ChatCompletionsOptions
             {
@@ -103,7 +108,7 @@ internal static class WebApplicationExtensions
         BlobContainerClient client,
         [EnumeratorCancellation] CancellationToken cancellationToken)
     {
-        await foreach (var blob in client.GetBlobsAsync(cancellationToken: cancellationToken))
+        await foreach (var blob in client.GetBlobsAsync(BlobTraits.Metadata, cancellationToken: cancellationToken))
         {
             if (blob is not null and { Deleted: false })
             {
@@ -141,7 +146,6 @@ internal static class WebApplicationExtensions
     private static async Task<IResult> OnPostImagePromptAsync(
         PromptRequest prompt,
         OpenAIClient client,
-        IConfiguration config,
         CancellationToken cancellationToken)
     {
         var result = await client.GetImageGenerationsAsync(new ImageGenerationOptions

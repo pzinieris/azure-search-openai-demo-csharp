@@ -1,10 +1,9 @@
-﻿// Copyright (c) Microsoft. All rights reserved.
-
-using Microsoft.AspNetCore.Antiforgery;
+﻿using Microsoft.AspNetCore.Antiforgery;
+using Shared.Models.Settings;
 
 var builder = WebApplication.CreateBuilder(args);
 
-builder.Configuration.ConfigureAzureKeyVault();
+builder.Services.Configure<AppSettings>(builder.Configuration);
 
 // See: https://aka.ms/aspnetcore/swashbuckle
 builder.Services.AddEndpointsApiExplorer();
@@ -16,6 +15,11 @@ builder.Services.AddCrossOriginResourceSharing();
 builder.Services.AddAzureServices();
 builder.Services.AddAntiforgery(options => { options.HeaderName = "X-CSRF-TOKEN-HEADER"; options.FormFieldName = "X-CSRF-TOKEN-FORM"; });
 builder.Services.AddHttpClient();
+
+// We need to keep track of the KeyVault secrets changes
+// https://learn.microsoft.com/en-us/aspnet/core/security/key-vault-configuration?view=aspnetcore-8.0#reload-secrets
+// builder.Services.AddSingleton<IConfigurationRoot>(builder.Configuration);
+// config.Reload();
 
 if (builder.Environment.IsDevelopment())
 {
@@ -51,8 +55,6 @@ else
             {name},abortConnect=false,ssl={ssl},allowAdmin=true,password={key}
             """;
         options.InstanceName = "content";
-
-        
     });
 
     // set application telemetry

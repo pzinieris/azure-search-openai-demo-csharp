@@ -1,4 +1,7 @@
-﻿// Copyright (c) Microsoft. All rights reserved.
+﻿using Microsoft.Extensions.Options;
+using Shared.Models.Settings;
+using Shared.Services;
+using Shared.Services.Interfaces;
 
 namespace MinimalApi.Extensions;
 
@@ -10,64 +13,69 @@ internal static class ServiceCollectionExtensions
     {
         services.AddSingleton<BlobServiceClient>(sp =>
         {
-            var config = sp.GetRequiredService<IConfiguration>();
-            var azureStorageAccountEndpoint = config["AzureStorageAccountEndpoint"];
+            var options = sp.GetRequiredService<IOptions<AppSettings>>();
+
+            var azureStorageAccountEndpoint = options.Value.AzureStorageAccountEndpoint;
             ArgumentNullException.ThrowIfNullOrEmpty(azureStorageAccountEndpoint);
 
-            var blobServiceClient = new BlobServiceClient(
-                new Uri(azureStorageAccountEndpoint), s_azureCredential);
+            var blobServiceClient = new BlobServiceClient(new Uri(azureStorageAccountEndpoint), s_azureCredential);
 
             return blobServiceClient;
         });
 
         services.AddSingleton<BlobContainerClient>(sp =>
         {
-            var config = sp.GetRequiredService<IConfiguration>();
-            var azureStorageContainer = config["AzureStorageContainer"];
+            var options = sp.GetRequiredService<IOptions<AppSettings>>();
+
+            var azureStorageContainer = options.Value.AzureStorageContainer;
+
             return sp.GetRequiredService<BlobServiceClient>().GetBlobContainerClient(azureStorageContainer);
         });
 
         services.AddSingleton<ISearchService, AzureSearchService>(sp =>
         {
-            var config = sp.GetRequiredService<IConfiguration>();
-            var azureSearchServiceEndpoint = config["AzureSearchServiceEndpoint"];
+            var options = sp.GetRequiredService<IOptions<AppSettings>>();
+
+            var azureSearchServiceEndpoint = options.Value.AzureSearchServiceEndpoint;
             ArgumentNullException.ThrowIfNullOrEmpty(azureSearchServiceEndpoint);
 
-            var azureSearchIndex = config["AzureSearchIndex"];
+            var azureSearchIndex = options.Value.AzureSearchIndex;
             ArgumentNullException.ThrowIfNullOrEmpty(azureSearchIndex);
 
-            var searchClient = new SearchClient(
-                               new Uri(azureSearchServiceEndpoint), azureSearchIndex, s_azureCredential);
+            var searchClient = new SearchClient(new Uri(azureSearchServiceEndpoint), azureSearchIndex, s_azureCredential);
 
             return new AzureSearchService(searchClient);
         });
 
         services.AddSingleton<DocumentAnalysisClient>(sp =>
         {
-            var config = sp.GetRequiredService<IConfiguration>();
-            var azureOpenAiServiceEndpoint = config["AzureOpenAiServiceEndpoint"] ?? throw new ArgumentNullException();
+            var options = sp.GetRequiredService<IOptions<AppSettings>>();
 
-            var documentAnalysisClient = new DocumentAnalysisClient(
-                new Uri(azureOpenAiServiceEndpoint), s_azureCredential);
-            return documentAnalysisClient;
+            var azureOpenAiServiceEndpoint = options.Value.AzureOpenAiServiceEndpoint ?? throw new ArgumentNullException();
+
+            return new DocumentAnalysisClient(new Uri(azureOpenAiServiceEndpoint), s_azureCredential);
         });
 
         services.AddSingleton<OpenAIClient>(sp =>
         {
-            var config = sp.GetRequiredService<IConfiguration>();
-            var useAOAI = config["UseAOAI"] == "true";
-            if (useAOAI)
+            var options = sp.GetRequiredService<IOptions<AppSettings>>();
+            var settings = options.Value;
+
+            if (settings.UseAOAI)
             {
-                var azureOpenAiServiceEndpoint = config["AzureOpenAiServiceEndpoint"];
+                var azureOpenAiServiceEndpoint = settings.AzureOpenAiServiceEndpoint;
                 ArgumentNullException.ThrowIfNullOrEmpty(azureOpenAiServiceEndpoint);
 
-                var openAIClient = new OpenAIClient(new Uri(azureOpenAiServiceEndpoint), s_azureCredential);
+                var openAIClient = new OpenAIClient(
+                    new Uri(azureOpenAiServiceEndpoint),
+                    //new AzureKeyCredential(azureOpenAiApiKey));
+                    s_azureCredential);
 
                 return openAIClient;
             }
             else
             {
-                var openAIApiKey = config["OpenAIApiKey"];
+                var openAIApiKey = settings.OpenAIApiKey;
                 ArgumentNullException.ThrowIfNullOrEmpty(openAIApiKey);
 
                 var openAIClient = new OpenAIClient(openAIApiKey);
@@ -78,22 +86,39 @@ internal static class ServiceCollectionExtensions
         services.AddSingleton<AzureBlobStorageService>();
         services.AddSingleton<ReadRetrieveReadChatService>(sp =>
         {
-            var config = sp.GetRequiredService<IConfiguration>();
-            var useGPT4V = config["UseGPT4V"] == "true";
+            var logger = sp.GetRequiredService<ILogger<ReadRetrieveReadChatService>>();
             var openAIClient = sp.GetRequiredService<OpenAIClient>();
             var searchClient = sp.GetRequiredService<ISearchService>();
-            if (useGPT4V)
+
+            var options = sp.GetRequiredService<IOptions<AppSettings>>();
+            var settings = options.Value;
+
+            if (settings.UseVision)
             {
-                var azureComputerVisionServiceEndpoint = config["AzureComputerVisionServiceEndpoint"];
+                var azureComputerVisionServiceEndpoint = settings.AzureComputerVisionServiceEndpoint;
                 ArgumentNullException.ThrowIfNullOrEmpty(azureComputerVisionServiceEndpoint);
+
+                var azureComputerVisionServiceApiVersion = settings.AzureComputerVisionServiceApiVersion;
+                if (string.IsNullOrWhiteSpace(azureComputerVisionServiceApiVersion))
+                {
+                    azureComputerVisionServiceApiVersion = "2024-02-01";
+                }
+
+                var azureComputerVisionServiceModelVersion = settings.AzureComputerVisionServiceModelVersion;
+                if (string.IsNullOrWhiteSpace(azureComputerVisionServiceModelVersion))
+                {
+                    azureComputerVisionServiceModelVersion = "2023-04-15";
+                }
+
                 var httpClient = sp.GetRequiredService<IHttpClientFactory>().CreateClient();
 
-                var visionService = new AzureComputerVisionService(httpClient, azureComputerVisionServiceEndpoint, s_azureCredential);
-                return new ReadRetrieveReadChatService(searchClient, openAIClient, config, visionService, s_azureCredential);
+                var visionService = new AzureComputerVisionService(httpClient, azureComputerVisionServiceEndpoint,
+                    azureComputerVisionServiceApiVersion, azureComputerVisionServiceModelVersion, s_azureCredential);
+                return new ReadRetrieveReadChatService(logger, searchClient, openAIClient, settings, visionService, s_azureCredential);
             }
             else
             {
-                return new ReadRetrieveReadChatService(searchClient, openAIClient, config, tokenCredential: s_azureCredential);
+                return new ReadRetrieveReadChatService(logger, searchClient, openAIClient, settings, tokenCredential: s_azureCredential);
             }
         });
 

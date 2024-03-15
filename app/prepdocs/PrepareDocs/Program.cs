@@ -1,4 +1,6 @@
-﻿s_rootCommand.SetHandler(
+﻿using Shared.Services.Interfaces;
+
+s_rootCommand.SetHandler(
     async (context) =>
     {
         var options = GetParsedAppOptions(context);

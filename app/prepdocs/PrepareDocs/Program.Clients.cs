@@ -1,4 +1,7 @@
-﻿internal static partial class Program
+﻿using Shared.Services;
+using Shared.Services.Interfaces;
+
+internal static partial class Program
 {
     #region Private Fields
 
@@ -192,6 +195,7 @@
         GetLazyClientAsync<IComputerVisionService?>(options, s_openAILock, async o =>
         {
             await Task.CompletedTask;
+
             var endpoint = o.ComputerVisionServiceEndpoint;
 
             if (string.IsNullOrEmpty(endpoint))
@@ -199,7 +203,20 @@
                 return null;
             }
 
-            return new AzureComputerVisionService(new HttpClient(), endpoint, DefaultCredential);
+            var azureComputerVisionServiceApiVersion = o.ComputerVisionServiceApiVersion;
+            if (string.IsNullOrWhiteSpace(azureComputerVisionServiceApiVersion))
+            {
+                azureComputerVisionServiceApiVersion = "2024-02-01";
+            }
+
+            var azureComputerVisionServiceModelVersion = o.ComputerVisionServiceModelVersion;
+            if (string.IsNullOrWhiteSpace(azureComputerVisionServiceModelVersion))
+            {
+                azureComputerVisionServiceModelVersion = "2023-04-15";
+            }
+
+            return new AzureComputerVisionService(new HttpClient(), endpoint,
+                azureComputerVisionServiceApiVersion, azureComputerVisionServiceModelVersion, DefaultCredential);
         });
 
     #endregion Factory Methods

@@ -1,4 +1,7 @@
-﻿// Copyright (c) Microsoft. All rights reserved.
+﻿using Markdig.Extensions.AutoLinks;
+using Markdig.Renderers.Html;
+using Markdig.Syntax;
+using Markdig.Syntax.Inlines;
 
 namespace ClientApp.Pages;
 
@@ -15,6 +18,7 @@ public sealed partial class VoiceChat : IDisposable
     private readonly MarkdownPipeline _pipeline = new MarkdownPipelineBuilder()
         .ConfigureNewLine("\n")
         .UseAdvancedExtensions()
+        .UseAutoLinks(new AutoLinkOptions() { OpenInNewWindow = true })
         .UseEmojiAndSmiley()
         .UseSoftlineBreakAsHardlineBreak()
         .Build();
@@ -57,9 +61,11 @@ public sealed partial class VoiceChat : IDisposable
                 var html = Markdown.ToHtml(responseText, _pipeline);
 
                 _questionAndAnswerMap[_currentQuestion] = html;
+                _isReceivingResponse = isComplete is false;
 
                 if (isComplete)
                 {
+                    // Change the voice state
                     _voicePreferences = new VoicePreferences(LocalStorage);
                     var (voice, rate, isEnabled) = _voicePreferences;
                     if (isEnabled)
@@ -83,11 +89,23 @@ public sealed partial class VoiceChat : IDisposable
                             StateHasChanged();
                         });
                     }
-                }
 
-                _isReceivingResponse = isComplete is false;
-                if (isComplete)
-                {
+                    // Making the links that are defined as [foo](url) or <url> to open in new tap
+                    MarkdownDocument document = Markdown.Parse(responseText, _pipeline);
+
+                    foreach (LinkInline link in document.Descendants<LinkInline>())
+                    {
+                        link.GetAttributes().AddPropertyIfNotExist("target", "_blank");
+                    }
+
+                    foreach (AutolinkInline link in document.Descendants<AutolinkInline>())
+                    {
+                        link.GetAttributes().AddPropertyIfNotExist("target", "_blank");
+                    }
+
+                    html = document.ToHtml(_pipeline);
+                    _questionAndAnswerMap[_currentQuestion] = html;
+
                     _userQuestion = "";
                     _currentQuestion = default;
                 }

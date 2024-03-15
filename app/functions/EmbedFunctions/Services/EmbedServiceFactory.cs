@@ -1,4 +1,8 @@
-﻿namespace EmbedFunctions.Services;
+﻿using Shared.Enum;
+using Shared.Services;
+using Shared.Services.Interfaces;
+
+namespace EmbedFunctions.Services;
 
 public sealed class EmbedServiceFactory(IEnumerable<IEmbedService> embedServices)
 {

@@ -1,4 +1,4 @@
-﻿namespace Shared;
+﻿namespace Shared.Enum;
 
 public enum EmbeddingType
 {

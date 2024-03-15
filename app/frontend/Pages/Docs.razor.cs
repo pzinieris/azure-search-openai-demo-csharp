@@ -1,6 +1,4 @@
-﻿// Copyright (c) Microsoft. All rights reserved.
-
-namespace ClientApp.Pages;
+﻿namespace ClientApp.Pages;
 
 public sealed partial class Docs : IDisposable
 {
@@ -86,6 +84,9 @@ public sealed partial class Docs : IDisposable
                     });
 
                 await _fileUpload.ResetAsync();
+
+                // Update the documents list
+                await GetDocumentsAsync();
             }
             else
             {
