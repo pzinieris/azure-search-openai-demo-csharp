@@ -7,6 +7,8 @@ using Azure.Search.Documents.Indexes;
 using Azure.Storage.Blobs;
 using FluentAssertions;
 using NSubstitute;
+using Shared.Services;
+using Shared.Services.Interfaces;
 
 namespace MinimalApi.Tests;
 public class AzureSearchEmbedServiceTest
