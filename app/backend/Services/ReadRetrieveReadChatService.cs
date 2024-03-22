@@ -304,7 +304,7 @@ public class ReadRetrieveReadChatService
         {
             var json = @$"
                 {{
-                    ""answer"": ""{aiMessage}""
+                    ""answer"": ""{aiMessage}"",
                     ""thoughts"": ""No thoughts provided""
                 }}";
 

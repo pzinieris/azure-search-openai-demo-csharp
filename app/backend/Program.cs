@@ -3,6 +3,8 @@ using Shared.Models.Settings;
 
 var builder = WebApplication.CreateBuilder(args);
 
+builder.Configuration.ConfigureAzureKeyVault();
+
 builder.Services.Configure<AppSettings>(builder.Configuration);
 
 // See: https://aka.ms/aspnetcore/swashbuckle

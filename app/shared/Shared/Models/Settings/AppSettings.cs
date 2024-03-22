@@ -14,11 +14,14 @@ public sealed class AppSettings
     public string? AzureOpenAiChatGptDeployment { get; set; }
     public string? AzureOpenAiEmbeddingDeployment { get; set; }
     public string? AzureOpenAiServiceEndpoint { get; set; }
+
     // Azure Open AI GPT4 with Vision
     public bool UseVision { get; set; }
     public string? AzureComputerVisionServiceEndpoint { get; set; }
     public string? AzureComputerVisionServiceApiVersion { get; set; }
     public string? AzureComputerVisionServiceModelVersion { get; set; }
+
+    public string? AzureFromRecognizerServiceEndpoint { get; set; }
 
     public string? AzureStorageAccountEndpoint { get; set; }
     public string? AzureStorageContainer { get; set; }
