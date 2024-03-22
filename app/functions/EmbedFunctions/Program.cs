@@ -1,41 +1,75 @@
 ﻿using Azure.AI.OpenAI;
+using Azure.Extensions.AspNetCore.Configuration.Secrets;
+using Microsoft.Extensions.Configuration;
 using Shared.Enum;
 using Shared.Factory;
+using Shared.Models.Settings;
 using Shared.Services;
 using Shared.Services.Interfaces;
 
 var host = new HostBuilder()
-    .ConfigureServices(services =>
+    .ConfigureAppConfiguration(configurationBuilder =>
     {
-        static Uri GetUriFromEnvironment(string variable) =>
-            Environment.GetEnvironmentVariable(variable) is string value
+        var builtConfig = configurationBuilder.Build();
+        var azureKeyVaultEndpoint = builtConfig["AZURE_KEY_VAULT_ENDPOINT"];
+
+        ArgumentNullException.ThrowIfNullOrEmpty(azureKeyVaultEndpoint);
+
+        configurationBuilder.AddAzureKeyVault(
+            new Uri(azureKeyVaultEndpoint), new DefaultAzureCredential(), new AzureKeyVaultConfigurationOptions
+            {
+                Manager = new KeyVaultSecretManager(),
+                // Reload the KeyVauld secrets once every day
+                ReloadInterval = TimeSpan.FromDays(1)
+            });
+
+        configurationBuilder.Build();
+    })
+    .ConfigureServices((hostContext, services) =>
+    {
+        static Uri GetUriFromValue(string? value) =>
+            !string.IsNullOrWhiteSpace(value)
             && Uri.TryCreate(value, UriKind.Absolute, out Uri? uri)
             && uri is not null
                 ? uri
-                : throw new ArgumentException($"Unable to parse URI from environment variable: {variable}");
+                : throw new ArgumentException($"Unable to parse URI from value: {(value != null ? value : "null")}");
 
         var credential = new DefaultAzureCredential();
+
+        #region AppSettings
+
+        services
+            .AddOptions<AppSettings>()
+            .Configure<IConfiguration>((settings, config) =>
+            {
+                config.Bind(settings);
+            });
+
+        var appSettings = hostContext.Configuration.Get<AppSettings>();
+        services.AddSingleton(appSettings);
+
+        #endregion AppSettings
 
         services.AddHttpClient();
 
         services.AddAzureClients(builder =>
         {
             builder.AddDocumentAnalysisClient(
-                GetUriFromEnvironment("AZURE_FORMRECOGNIZER_SERVICE_ENDPOINT"));
+                GetUriFromValue(appSettings.AzureFromRecognizerServiceEndpoint));
         });
 
         services.AddSingleton<SearchClient>(_ =>
         {
             return new SearchClient(
-                GetUriFromEnvironment("AZURE_SEARCH_SERVICE_ENDPOINT"),
-                Environment.GetEnvironmentVariable("AZURE_SEARCH_INDEX"),
+                GetUriFromValue(appSettings.AzureSearchServiceEndpoint),
+                appSettings.AzureSearchIndex,
                 credential);
         });
 
         services.AddSingleton<SearchIndexClient>(_ =>
         {
             return new SearchIndexClient(
-                GetUriFromEnvironment("AZURE_SEARCH_SERVICE_ENDPOINT"),
+                GetUriFromValue(appSettings.AzureSearchServiceEndpoint),
                 credential);
         });
 
@@ -54,7 +88,7 @@ var host = new HostBuilder()
         services.AddSingleton<BlobServiceClient>(_ =>
         {
             var blobServiceClient = new BlobServiceClient(
-                GetUriFromEnvironment("AZURE_STORAGE_BLOB_ENDPOINT"),
+                GetUriFromValue(appSettings.AzureStorageAccountEndpoint),
                 credential);
 
             return blobServiceClient;
@@ -66,9 +100,14 @@ var host = new HostBuilder()
 
         services.AddSingleton<IEmbedService, AzureSearchEmbedService>(provider =>
         {
-            var searchIndexName = Environment.GetEnvironmentVariable("AZURE_SEARCH_INDEX") ?? throw new ArgumentNullException("AZURE_SEARCH_INDEX is null");
-            var embeddingModelName = Environment.GetEnvironmentVariable("AZURE_OPENAI_EMBEDDING_DEPLOYMENT") ?? throw new ArgumentNullException("AZURE_OPENAI_EMBEDDING_DEPLOYMENT is null");
-            var openaiEndPoint = Environment.GetEnvironmentVariable("AZURE_OPENAI_ENDPOINT") ?? throw new ArgumentNullException("AZURE_OPENAI_ENDPOINT is null");
+            var searchIndexName = appSettings.AzureSearchIndex;
+            ArgumentNullException.ThrowIfNullOrWhiteSpace(searchIndexName);
+
+            var embeddingModelName = appSettings.AzureOpenAiEmbeddingDeployment;
+            ArgumentNullException.ThrowIfNullOrWhiteSpace(embeddingModelName);
+
+            var openaiEndPoint = appSettings.AzureOpenAiServiceEndpoint;
+            ArgumentNullException.ThrowIfNullOrWhiteSpace(openaiEndPoint);
 
             var openAIClient = new OpenAIClient(new Uri(openaiEndPoint), credential);
 
@@ -82,26 +121,30 @@ var host = new HostBuilder()
             var corpusContainerClient = blobContainerClientFactory.GetBlobContainerClient(BlobContainerName.Corpus);
 
             // Vision Service
-            var azureComputerVisionServiceEndpoint = Environment.GetEnvironmentVariable("AzureComputerVisionServiceEndpoint");
-            ArgumentNullException.ThrowIfNullOrEmpty(azureComputerVisionServiceEndpoint);
-
-            var azureComputerVisionServiceApiVersion = Environment.GetEnvironmentVariable("AzureComputerVisionServiceApiVersion");
-            if (string.IsNullOrWhiteSpace(azureComputerVisionServiceApiVersion))
+            AzureComputerVisionService? visionService = null;
+            if (appSettings.UseVision)
             {
-                azureComputerVisionServiceApiVersion = "2024-02-01";
+                var azureComputerVisionServiceEndpoint = appSettings.AzureComputerVisionServiceEndpoint;
+                ArgumentNullException.ThrowIfNullOrWhiteSpace(azureComputerVisionServiceEndpoint);
+
+                var azureComputerVisionServiceApiVersion = appSettings.AzureComputerVisionServiceApiVersion;
+                if (string.IsNullOrWhiteSpace(azureComputerVisionServiceApiVersion))
+                {
+                    azureComputerVisionServiceApiVersion = "2024-02-01";
+                }
+
+                var azureComputerVisionServiceModelVersion = appSettings.AzureComputerVisionServiceModelVersion;
+                if (string.IsNullOrWhiteSpace(azureComputerVisionServiceModelVersion))
+                {
+                    azureComputerVisionServiceModelVersion = "2023-04-15";
+                }
+
+                var httpClient = provider.GetRequiredService<IHttpClientFactory>().CreateClient();
+
+                visionService = new AzureComputerVisionService(httpClient, azureComputerVisionServiceEndpoint,
+                    azureComputerVisionServiceApiVersion, azureComputerVisionServiceModelVersion, credential);
             }
 
-            var azureComputerVisionServiceModelVersion = Environment.GetEnvironmentVariable("AzureComputerVisionServiceModelVersion");
-            if (string.IsNullOrWhiteSpace(azureComputerVisionServiceModelVersion))
-            {
-                azureComputerVisionServiceModelVersion = "2023-04-15";
-            }
-
-            var httpClient = provider.GetRequiredService<IHttpClientFactory>().CreateClient();
-
-            var visionService = new AzureComputerVisionService(httpClient, azureComputerVisionServiceEndpoint,
-                azureComputerVisionServiceApiVersion, azureComputerVisionServiceModelVersion, credential);
-            
             return new AzureSearchEmbedService(
                 openAIClient: openAIClient,
                 embeddingModelName: embeddingModelName,
