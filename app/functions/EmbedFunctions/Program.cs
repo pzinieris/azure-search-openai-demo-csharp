@@ -8,8 +8,10 @@ using Shared.Services;
 using Shared.Services.Interfaces;
 
 var host = new HostBuilder()
-    .ConfigureAppConfiguration(configurationBuilder =>
+    .ConfigureAppConfiguration((context, configurationBuilder) =>
     {
+        configurationBuilder.AddEnvironmentVariables();
+
         var builtConfig = configurationBuilder.Build();
         var azureKeyVaultEndpoint = builtConfig["AZURE_KEY_VAULT_ENDPOINT"];
 
@@ -25,7 +27,7 @@ var host = new HostBuilder()
 
         configurationBuilder.Build();
     })
-    .ConfigureServices((hostContext, services) =>
+    .ConfigureServices((context, services) =>
     {
         static Uri GetUriFromValue(string? value) =>
             !string.IsNullOrWhiteSpace(value)
@@ -45,7 +47,7 @@ var host = new HostBuilder()
                 config.Bind(settings);
             });
 
-        var appSettings = hostContext.Configuration.Get<AppSettings>();
+        var appSettings = context.Configuration.Get<AppSettings>();
         services.AddSingleton(appSettings);
 
         #endregion AppSettings
