@@ -233,6 +233,10 @@ module keyVaultSecrets 'core/security/keyvault-secrets.bicep' = {
         name: 'AzureStorageAccountEndpoint'
         value: storage.outputs.primaryEndpoints.blob
       }
+	  {
+	    name: 'AzureFromRecognizerServiceEndpoint'
+		value: formRecognizer.outputs.endpoint
+	  }
       {
         name: 'AzureStorageContainer'
         value: storageContainerName
