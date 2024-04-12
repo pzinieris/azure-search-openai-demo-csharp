@@ -51,9 +51,9 @@ internal static class ServiceCollectionExtensions
         {
             var options = sp.GetRequiredService<IOptions<AppSettings>>();
 
-            var azureOpenAiServiceEndpoint = options.Value.AzureOpenAiServiceEndpoint ?? throw new ArgumentNullException();
+            var azureFromRecognizerServiceEndpoint = options.Value.AzureFromRecognizerServiceEndpoint ?? throw new ArgumentNullException();
 
-            return new DocumentAnalysisClient(new Uri(azureOpenAiServiceEndpoint), s_azureCredential);
+            return new DocumentAnalysisClient(new Uri(azureFromRecognizerServiceEndpoint), s_azureCredential);
         });
 
         services.AddSingleton<OpenAIClient>(sp =>
