@@ -1,7 +1,17 @@
-﻿namespace ClientApp.Components;
+﻿using Markdig.Extensions.AutoLinks;
+
+namespace ClientApp.Components;
 
 public sealed partial class Answer
 {
+    private readonly static MarkdownPipeline s_pipeline = new MarkdownPipelineBuilder()
+        .ConfigureNewLine("\n")
+        .UseAdvancedExtensions()
+        .UseAutoLinks(new AutoLinkOptions() { OpenInNewWindow = true })
+        .UseEmojiAndSmiley()
+        .UseSoftlineBreakAsHardlineBreak()
+        .Build();
+
     internal static HtmlParsedAnswer ParseAnswerToHtml(string answer, string citationBaseUrl)
     {
         var citations = new List<CitationDetails>();
@@ -43,8 +53,11 @@ public sealed partial class Answer
             }
         });
 
+        var answerHtml = string.Join("", fragments);
+        answerHtml = Markdown.ToHtml(answerHtml, s_pipeline);
+
         return new HtmlParsedAnswer(
-            string.Join("", fragments),
+            answerHtml,
             citations,
             followupQuestions.Select(f => f.Replace("<<", "").Replace(">>", ""))
                 .ToHashSet());
