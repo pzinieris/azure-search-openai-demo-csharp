@@ -24,9 +24,10 @@ public class AnswerParserTests
                 This includes services that are not covered under the plan, such as experimental treatments and services for cosmetic purposes [Northwind_Health_Plus_Benefits_Details-25.pdf].
                 """,
                 """
-                Northwind Health Plus does not guarantee the amount charged by an out-of-network provider, and the member is responsible for any balance remaining after the plan has paid its portion <sup class="mud-chip mud-chip-text mud-chip-color-info rounded pa-1">1</sup>.
-                Northwind Health Plus also pays for services that are not listed in the plan documents, if the health care provider determines that such services are medically necessary <sup class="mud-chip mud-chip-text mud-chip-color-info rounded pa-1">2</sup>.
-                This includes services that are not covered under the plan, such as experimental treatments and services for cosmetic purposes <sup class="mud-chip mud-chip-text mud-chip-color-info rounded pa-1">3</sup>.
+                <p>Northwind Health Plus does not guarantee the amount charged by an out-of-network provider, and the member is responsible for any balance remaining after the plan has paid its portion <sup class="mud-chip mud-chip-text mud-chip-color-info rounded pa-1">1</sup>.<br />
+                Northwind Health Plus also pays for services that are not listed in the plan documents, if the health care provider determines that such services are medically necessary <sup class="mud-chip mud-chip-text mud-chip-color-info rounded pa-1">2</sup>.<br />
+                This includes services that are not covered under the plan, such as experimental treatments and services for cosmetic purposes <sup class="mud-chip mud-chip-text mud-chip-color-info rounded pa-1">3</sup>.</p>
+
                 """,
                 new List<CitationDetails>
                 {
