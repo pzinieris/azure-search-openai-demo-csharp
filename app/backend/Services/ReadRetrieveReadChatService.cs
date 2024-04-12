@@ -127,7 +127,7 @@ public class ReadRetrieveReadChatService
 
         // step 3
         // put together related docs and conversation history to generate answer
-        var answerChat = new ChatHistory(@"You are a system assistant who helps the company employees with their questions. Be brief in your answers.");
+        var answerChat = new ChatHistory(@"You are a system assistant who helps the company employees with their questions.");
 
         // add chat history
         foreach (var turn in history)
@@ -166,7 +166,7 @@ public class ReadRetrieveReadChatService
         }
         else
         {
-            var prompt = @$"Give your answer based on the quetsion provided and the Documents Source.
+            var prompt = @$"Give your answer based on the question provided and the Documents Source.
                 # Documents Source
                 {documentContents}
                 # End of Documents Source
@@ -242,12 +242,7 @@ public class ReadRetrieveReadChatService
             }
         }
 
-        return new ApproachResponse(
-            DataPoints: documentContentList,
-            Images: images,
-            Answer: ans,
-            Thoughts: thoughts,
-            CitationBaseUrl: _appSettings.ToCitationBaseUrl());
+        return new ApproachResponse(ans, thoughts, documentContentList, images, _appSettings.ToCitationBaseUrl());
     }
 
     #endregion Public Methods
