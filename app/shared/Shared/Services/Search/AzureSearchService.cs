@@ -1,5 +1,7 @@
 ﻿using Azure.Search.Documents;
 using Azure.Search.Documents.Models;
+using Shared.Domain;
+using Shared.Extensions;
 using Shared.Models;
 using Shared.Services.Interfaces;
 
@@ -36,6 +38,7 @@ public class AzureSearchService(SearchClient searchClient) : ISearchService
                     QueryCaption = new(useSemanticCaptions
                         ? QueryCaptionType.Extractive
                         : QueryCaptionType.None),
+                    QueryAnswer = new(QueryAnswerType.Extractive)
                 },
                 // TODO: Find if these options are assignable
                 //QueryLanguage = "en-us",
@@ -50,26 +53,26 @@ public class AzureSearchService(SearchClient searchClient) : ISearchService
 
         if (embedding != null && overrides?.RetrievalMode != RetrievalMode.Text)
         {
-            var k = useSemanticRanker ? 50 : top;
             var vectorQuery = new VectorizedQuery(embedding)
             {
                 // if semantic ranker is enabled, we need to set the rank to a large number to get more
                 // candidates for semantic reranking
                 KNearestNeighborsCount = useSemanticRanker ? 50 : top,
             };
-            vectorQuery.Fields.Add("embedding");
+            vectorQuery.Fields.Add(nameof(VectorizeSearchEntity.Embedding).GetJsonPropertyNameAttributeValue(typeof(VectorizeSearchEntity)));
+
             searchOptions.VectorSearch = new();
             searchOptions.VectorSearch.Queries.Add(vectorQuery);
         }
 
-        var searchResultResponse = await searchClient.SearchAsync<SearchDocument>(
+        var searchResultResponse = await searchClient.SearchAsync<VectorizeSearchEntity>(
             query, searchOptions, cancellationToken);
         if (searchResultResponse.Value is null)
         {
             throw new InvalidOperationException("fail to get search result");
         }
 
-        SearchResults<SearchDocument> searchResult = searchResultResponse.Value;
+        SearchResults<VectorizeSearchEntity> searchResult = searchResultResponse.Value;
 
         // Assemble sources here.
         // Example output for each SearchDocument:
@@ -81,22 +84,29 @@ public class AzureSearchService(SearchClient searchClient) : ISearchService
         //   "sourcepage": "Northwind_Standard_Benefits_Details-24.pdf",
         //   "sourcefile": "Northwind_Standard_Benefits_Details.pdf"
         // }
+
         var sb = new List<SupportingContentRecord>();
-        foreach (var doc in searchResult.GetResults())
+        await foreach (var doc in searchResult.GetResultsAsync())
         {
-            doc.Document.TryGetValue("sourcepage", out var sourcePageValue);
+            var document = doc.Document;
+
+            var sourcePageValue = document.SourcePage;
+
             string? contentValue;
             try
             {
-                if (useSemanticCaptions)
+                if (useSemanticCaptions && doc.SemanticSearch.Captions != null)
                 {
+                    // "text": "Oceanside Resort. Luxury. New Luxury Hotel. Be the first to stay. Bay views from every room, location near the pier, rooftop pool, waterfront dining & more.",                
                     var docs = doc.SemanticSearch.Captions.Select(c => c.Text);
+
+                    // "highlights": "<strong>Oceanside Resort.</strong> Luxury. New Luxury Hotel. Be the first to stay.<strong> Bay</strong> views from every room, location near the pier, rooftop pool, waterfront dining & more."
+                    //var docs = doc.SemanticSearch.Captions.Select(c => c.Highlights);
                     contentValue = string.Join(" . ", docs);
                 }
                 else
                 {
-                    doc.Document.TryGetValue("content", out var value);
-                    contentValue = (string)value;
+                    contentValue = document.Content;
                 }
             }
             catch (ArgumentNullException)

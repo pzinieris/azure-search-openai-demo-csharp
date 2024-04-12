@@ -9,8 +9,8 @@ using Azure.Search.Documents.Models;
 using Azure.Storage.Blobs;
 using Azure.Storage.Blobs.Models;
 using Microsoft.Extensions.Logging;
+using Shared.Domain;
 using Shared.Enum;
-using Shared.Factory;
 using Shared.Models;
 using Shared.Services.Interfaces;
 
@@ -117,18 +117,11 @@ public sealed partial class AzureSearchEmbedService : AzureFormRecognizerDocumen
         var imageId = MatchInSetRegex().Replace(imageUrl, """_""").TrimStart('_');
         // step 3
         // index image embeddings
-        var indexAction = new IndexDocumentsAction<SearchDocument>(
+        var indexAction = new IndexDocumentsAction<VectorizeSearchEntity>(
             IndexActionType.MergeOrUpload,
-            new SearchDocument
-            {
-                ["""id"""] = imageId,
-                ["""content"""] = imageName,
-                ["""category"""] = """image""",
-                ["""imageEmbedding"""] = embeddings.vector,
-                ["""sourcefile"""] = imageUrl,
-            });
+            VectorizeSearchEntity.CreateImage(imageId, imageName, imageUrl, embeddings.vector));
 
-        var batch = new IndexDocumentsBatch<SearchDocument>();
+        var batch = new IndexDocumentsBatch<VectorizeSearchEntity>();
         batch.Actions.Add(indexAction);
         await _searchClient.IndexDocumentsAsync(batch, cancellationToken: ct);
 
@@ -362,7 +355,7 @@ public sealed partial class AzureSearchEmbedService : AzureFormRecognizerDocumen
     private async Task IndexSectionsAsync(IEnumerable<Section> sections)
     {
         var iteration = 0;
-        var batch = new IndexDocumentsBatch<SearchDocument>();
+        var batch = new IndexDocumentsBatch<VectorizeSearchEntity>();
 
         _logger?.LogInformation("""Starting {MethodName} with {SectionsCount} total sections.""", nameof(IndexSectionsAsync), sections.Count());
 
@@ -372,17 +365,9 @@ public sealed partial class AzureSearchEmbedService : AzureFormRecognizerDocumen
 
             var embedding = embeddings.Value.Data.FirstOrDefault()?.Embedding.ToArray() ?? [];
 
-            batch.Actions.Add(new IndexDocumentsAction<SearchDocument>(
+            batch.Actions.Add(new IndexDocumentsAction<VectorizeSearchEntity>(
                 IndexActionType.MergeOrUpload,
-                new SearchDocument
-                {
-                    ["""id"""] = section.Id,
-                    ["""content"""] = section.Content,
-                    ["""category"""] = section.Category,
-                    ["""sourcepage"""] = section.SourcePage,
-                    ["""sourcefile"""] = section.SourceFile,
-                    ["""embedding"""] = embedding,
-                }));
+                VectorizeSearchEntity.CreateDocument(section.Id, section.Content, section.SourceFile, section.SourcePage, embedding)));
 
             iteration++;
             // Every one thousand documents, batch create.
@@ -436,7 +421,7 @@ public sealed partial class AzureSearchEmbedService : AzureFormRecognizerDocumen
         return length - 1;
     }
 
-    private async Task IndexDocumentsToAzureSearchAsync(IndexDocumentsBatch<SearchDocument> batch)
+    private async Task IndexDocumentsToAzureSearchAsync(IndexDocumentsBatch<VectorizeSearchEntity> batch)
     {
         IndexDocumentsResult result = await _searchClient.IndexDocumentsAsync(batch);
 
