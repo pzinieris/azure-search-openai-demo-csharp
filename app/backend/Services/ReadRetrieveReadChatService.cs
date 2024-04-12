@@ -127,8 +127,7 @@ public class ReadRetrieveReadChatService
 
         // step 3
         // put together related docs and conversation history to generate answer
-        var answerChat = new ChatHistory(@"You are a system assistant who helps the company employees with their questions. Be brief in your answers
-            You will always reply with a Markdown formatted response");
+        var answerChat = new ChatHistory(@"You are a system assistant who helps the company employees with their questions.");
 
         // add chat history
         foreach (var turn in history)
@@ -167,7 +166,7 @@ public class ReadRetrieveReadChatService
         }
         else
         {
-            var prompt = @$"Give your answer based on the quetsion provided and the Documents Source.
+            var prompt = @$"Give your answer based on the question provided and the Documents Source.
                 # Documents Source
                 {documentContents}
                 # End of Documents Source
@@ -175,7 +174,7 @@ public class ReadRetrieveReadChatService
                 # Format of the response
                 You answer needs to be a json object with the following format. Don't put your answer between ```json or ```, return the json object directly.
                 {{
-                    ""answer"": // the answer to the question, add a source reference to the end of each sentence. e.g. Apple is a fruit [reference1.pdf][reference2.pdf]. If no source available, put the answer as I don't know.
+                    ""answer"": // the answer to the question, add a source reference to the end of each sentence. e.g. Apple is a fruit [reference1.pdf][reference2.pdf]. If no source available, put the answer as I don't know. You will always reply with a Markdown formatted response
                     ""thoughts"": // brief thoughts on how you came up with the answer, e.g. what sources you used, what you thought about, etc.
                 }}";
                 //Don't put your answer between ```json or ```, return the json object directly.";
@@ -243,12 +242,7 @@ public class ReadRetrieveReadChatService
             }
         }
 
-        return new ApproachResponse(
-            DataPoints: documentContentList,
-            Images: images,
-            Answer: ans,
-            Thoughts: thoughts,
-            CitationBaseUrl: _appSettings.ToCitationBaseUrl());
+        return new ApproachResponse(ans, thoughts, documentContentList, images, _appSettings.ToCitationBaseUrl());
     }
 
     #endregion Public Methods
@@ -267,9 +261,9 @@ public class ReadRetrieveReadChatService
 
             var embeddingModelName = _appSettings.OpenAiEmbeddingDeployment;
             ArgumentNullException.ThrowIfNullOrWhiteSpace(embeddingModelName);
-#pragma warning disable SKEXP0011 // Type is for evaluation purposes only and is subject to change or removal in future updates. Suppress this diagnostic to proceed.
+#pragma warning disable SKEXP0010 // Type is for evaluation purposes only and is subject to change or removal in future updates. Suppress this diagnostic to proceed.
             kernelBuilder = kernelBuilder.AddOpenAITextEmbeddingGeneration(embeddingModelName, client);
-#pragma warning restore SKEXP0011 // Type is for evaluation purposes only and is subject to change or removal in future updates. Suppress this diagnostic to proceed.
+#pragma warning restore SKEXP0010 // Type is for evaluation purposes only and is subject to change or removal in future updates. Suppress this diagnostic to proceed.
         }
         else
         {
@@ -280,9 +274,9 @@ public class ReadRetrieveReadChatService
             var embeddingModelName = _appSettings.AzureOpenAiEmbeddingDeployment;
             if (!string.IsNullOrEmpty(embeddingModelName))
             {
-#pragma warning disable SKEXP0011 // Type is for evaluation purposes only and is subject to change or removal in future updates. Suppress this diagnostic to proceed.
+#pragma warning disable SKEXP0010 // Type is for evaluation purposes only and is subject to change or removal in future updates. Suppress this diagnostic to proceed.
                 kernelBuilder = kernelBuilder.AddAzureOpenAITextEmbeddingGeneration(embeddingModelName, client);
-#pragma warning restore SKEXP0011 // Type is for evaluation purposes only and is subject to change or removal in future updates. Suppress this diagnostic to proceed.
+#pragma warning restore SKEXP0010 // Type is for evaluation purposes only and is subject to change or removal in future updates. Suppress this diagnostic to proceed.
             }
         }
 

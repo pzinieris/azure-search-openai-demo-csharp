@@ -22,28 +22,28 @@
                       Label="Exclude category" Placeholder="Exclude category" Class="pa-2"
                       @bind-Value="Settings.Overrides.ExcludeCategory" Clearable="true" />
 
-        <MudCheckBox @bind-Checked="@Settings.Overrides.SemanticRanker" Size="Size.Large"
+        <MudCheckBox @bind-Value="@Settings.Overrides.SemanticRanker" Size="Size.Large"
                      Color="Color.Primary" Label="Use semantic ranker for retrieval" />
 
         <MudText Typo="Typo.subtitle1">Retrieval Mode</MudText>
-        <MudRadioGroup Required="true" @bind-SelectedOption="@Settings.Overrides.RetrievalMode" Class="pa-2">
-            <MudRadio T="RetrievalMode" Option="@RetrievalMode.Text" Color="Color.Primary">
+        <MudRadioGroup Required="true" @bind-Value="@Settings.Overrides.RetrievalMode" Class="pa-2">
+            <MudRadio T="RetrievalMode" Value="@RetrievalMode.Text" Color="Color.Primary">
                 Text
             </MudRadio>
-            <MudRadio T="RetrievalMode" Option="@RetrievalMode.Hybrid" Color="Color.Primary">
+            <MudRadio T="RetrievalMode" Value="@RetrievalMode.Hybrid" Color="Color.Primary">
                 Hybrid
             </MudRadio>
-            <MudRadio T="RetrievalMode" Option="@RetrievalMode.Vector" Color="Color.Primary">
+            <MudRadio T="RetrievalMode" Value="@RetrievalMode.Vector" Color="Color.Primary">
                 Vector
             </MudRadio>
         </MudRadioGroup>
-        <MudCheckBox @bind-Checked="@Settings.Overrides.SemanticCaptions" Size="Size.Large"
+        <MudCheckBox @bind-Value="@Settings.Overrides.SemanticCaptions" Size="Size.Large"
                      Color="Color.Primary" 
                      Label="Use query-contrextual summaries instead of whole documents" />
     
         @if (_supportedSettings is not SupportedSettings.Chat)
         {
-            <MudCheckBox @bind-Checked="@Settings.Overrides.SuggestFollowupQuestions" Size="Size.Large"
+            <MudCheckBox @bind-Value="@Settings.Overrides.SuggestFollowupQuestions" Size="Size.Large"
                          Color="Color.Primary" Label="Suggest follow-up questions"
                          aria-label="Suggest follow-up questions checkbox." />
         }
