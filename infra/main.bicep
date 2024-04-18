@@ -20,7 +20,7 @@ param tags string = ''
 param openAiResourceGroupLocation string
 
 @description('Name of the chat GPT model. Default: gpt-35-turbo')
-@allowed([ 'gpt-35-turbo', 'gpt-4', 'gpt-35-turbo-16k', 'gpt-4-16k' ])
+@allowed([ 'gpt-35-turbo', 'gpt-4', 'gpt-35-turbo-16k', 'gpt-4-32k' ])
 param chatGptModelName string = 'gpt-35-turbo'
 
 @description('Name of the Azure Application Insights dashboard')

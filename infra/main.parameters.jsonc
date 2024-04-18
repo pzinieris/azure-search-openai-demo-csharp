@@ -92,10 +92,10 @@
     },
 	// Azure Open AI
 	"chatGptModelName":{
-		"value": "${AZURE_OPENAI_CHAT_GPT_MODEL_NAME=gpt-4}"
+		"value": "${AZURE_OPENAI_CHAT_GPT_MODEL_NAME=gpt-4-32k}"
 	},
     "azureChatGptDeploymentName":{
-      "value": "GPT_4_0613"
+      "value": "GPT_4_32K"
     },
 	"azureEmbeddingModelName":{
 	  "value": "${AZURE_OPENAI_EMBEDDING_MODEL_NAME=text-embedding-ada-002}"
