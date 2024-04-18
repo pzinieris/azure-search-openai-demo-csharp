@@ -1,5 +1,7 @@
 ﻿using Azure.Core;
 using Microsoft.SemanticKernel.Connectors.OpenAI;
+using Shared.Domain;
+using Shared.Extensions;
 using Shared.Models.Settings;
 using Shared.Services.Interfaces;
 
@@ -12,10 +14,11 @@ public class ReadRetrieveReadChatService
     private readonly ILogger<ReadRetrieveReadChatService> _logger;
 
     private readonly ISearchService _searchClient;
-    private readonly Kernel _kernel;
+    private readonly OpenAIClient _openAIClient;
     private readonly AppSettings _appSettings;
     private readonly IComputerVisionService? _visionService;
     private readonly TokenCredential? _tokenCredential;
+    private readonly Kernel _kernel;
 
     #endregion Private Fields
 
@@ -32,17 +35,26 @@ public class ReadRetrieveReadChatService
         _logger = logger;
 
         _searchClient = searchClient;
+        _openAIClient = client;
         _appSettings = appSettings;
         _visionService = visionService;
         _tokenCredential = tokenCredential;
-        
-        _kernel = GetSemanticKernel(client);        
+
+        _kernel = GetSemanticKernel(client);
     }
 
     #endregion Constructor
 
     #region Public Methods
 
+    /// <summary>
+    /// This is the method were we manually retrieving the documents from Azure search service, and provide the documents to the Azure OpenAI request
+    /// </summary>
+    /// <param name="history"></param>
+    /// <param name="overrides"></param>
+    /// <param name="cancellationToken"></param>
+    /// <returns></returns>
+    /// <exception cref="InvalidOperationException"></exception>
     public async Task<ApproachResponse> ReplyAsync(
         ChatTurn[] history,
         RequestOverrides? overrides,
@@ -71,7 +83,7 @@ public class ReadRetrieveReadChatService
 
         //_kernel.InvokePromptAsync
         //_kernel.CreatePluginFromPromptDirectory
-        
+
         // step 1
         // use llm to get query if retrieval mode is not vector
         string? query = null;
@@ -177,7 +189,7 @@ public class ReadRetrieveReadChatService
                     ""answer"": // the answer to the question, add a source reference to the end of each sentence. e.g. Apple is a fruit [reference1.pdf][reference2.pdf]. If no source available, put the answer as I don't know. You will always reply with a Markdown formatted response
                     ""thoughts"": // brief thoughts on how you came up with the answer, e.g. what sources you used, what you thought about, etc.
                 }}";
-                //Don't put your answer between ```json or ```, return the json object directly.";
+            //Don't put your answer between ```json or ```, return the json object directly.";
             answerChat.AddUserMessage(prompt);
         }
 
@@ -243,6 +255,181 @@ public class ReadRetrieveReadChatService
         }
 
         return new ApproachResponse(ans, thoughts, documentContentList, images, _appSettings.ToCitationBaseUrl());
+    }
+
+    /// <summary>
+    /// This is the method were the Azure OpenAI is handling the document retrieval and usage into the user prompt
+    /// </summary>
+    /// <param name="history"></param>
+    /// <param name="overrides"></param>
+    /// <param name="cancellationToken"></param>
+    /// <returns></returns>
+    public async Task<ApproachResponse> ReplyOnYourDataAsync(
+        ChatTurn[] history,
+        RequestOverrides? overrides,
+        CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(history.LastOrDefault()?.User))
+        {
+            throw new InvalidOperationException("Use question is null");
+        }
+
+        var aiDeploymentName = _appSettings.AzureOpenAiChatGptDeployment;
+        ArgumentNullException.ThrowIfNullOrEmpty(aiDeploymentName);
+
+        var aiEmbedingDeploymentName = _appSettings.AzureOpenAiEmbeddingDeployment;
+        ArgumentNullException.ThrowIfNullOrEmpty(aiEmbedingDeploymentName);
+
+        var azureSearchServiceEndpoint = _appSettings.AzureSearchServiceEndpoint;
+        ArgumentNullException.ThrowIfNullOrEmpty(azureSearchServiceEndpoint);
+
+        var azureSearchIndex = _appSettings.AzureSearchIndex;
+        ArgumentNullException.ThrowIfNullOrEmpty(azureSearchIndex);
+
+        var useSemanticRanker = overrides?.SemanticRanker ?? false;
+        AzureSearchQueryType queryType;
+        if (overrides?.RetrievalMode == RetrievalMode.Hybrid)
+        {
+            if (useSemanticRanker)
+            {
+                queryType = AzureSearchQueryType.VectorSemanticHybrid;
+            }
+            else
+            {
+                queryType = AzureSearchQueryType.VectorSimpleHybrid;
+            }
+        }
+        else if (useSemanticRanker)
+        {
+            queryType = AzureSearchQueryType.Semantic;
+        }
+        else if (overrides?.RetrievalMode == RetrievalMode.Vector)
+        {
+            queryType = AzureSearchQueryType.Vector;
+        }
+        else
+        {
+            queryType = AzureSearchQueryType.Simple;
+        }
+
+        // step 1
+        // put together the conversation history to generate answer
+        var messages = new List<ChatRequestMessage>()
+        {
+            new ChatRequestSystemMessage(@"You are a system assistant who helps the company employees with their questions.
+                Code snippets must be generated to C# programming language, unless specified otherwise by the user.
+                You will always reply with a Markdown formatted response.")
+        };
+
+        // add chat history
+        foreach (var turn in history)
+        {
+            messages.Add(new ChatRequestUserMessage(turn.User));
+            if (turn.Bot is { } botMessage)
+            {
+                messages.Add(new ChatRequestAssistantMessage(botMessage));
+            }
+        }
+
+        var chatCompletionsOptions = new ChatCompletionsOptions(aiDeploymentName, messages)
+        {
+            AzureExtensionsOptions = new AzureChatExtensionsOptions()
+            {
+                Extensions =
+                {
+                    new AzureSearchChatExtensionConfiguration()
+                    {
+                        SearchEndpoint = new Uri(azureSearchServiceEndpoint),
+                        Authentication = new OnYourDataSystemAssignedManagedIdentityAuthenticationOptions(),
+                        IndexName = azureSearchIndex,
+                        DocumentCount = overrides?.Top ?? 5,
+                        QueryType = queryType,
+                        SemanticConfiguration = "default",
+                        VectorizationSource = new OnYourDataDeploymentNameVectorizationSource(aiEmbedingDeploymentName),
+                        FieldMappingOptions = new AzureSearchIndexFieldMappingOptions()
+                        {
+                            TitleFieldName = nameof(VectorizeSearchEntity.Id).GetJsonPropertyNameAttributeValue(typeof(VectorizeSearchEntity)),
+                            FilepathFieldName = nameof(VectorizeSearchEntity.SourceFile).GetJsonPropertyNameAttributeValue(typeof(VectorizeSearchEntity)),
+                            ContentFieldNames =
+                            {
+                                nameof(VectorizeSearchEntity.Content).GetJsonPropertyNameAttributeValue(typeof(VectorizeSearchEntity))
+                            },
+                            VectorFieldNames =
+                            {
+                                nameof(VectorizeSearchEntity.Embedding).GetJsonPropertyNameAttributeValue(typeof(VectorizeSearchEntity))
+                            }
+                        }
+                    }
+                }
+            }
+            //ResponseFormat = ChatCompletionsResponseFormat.JsonObject
+        };
+
+        // get answer
+        //var answer = await _openAIClient.GetChatCompletionsStreamingAsync(chatCompletionsOptions);        
+        var answer = await _openAIClient.GetChatCompletionsAsync(chatCompletionsOptions, cancellationToken: cancellationToken);
+
+        var aiAnswer = answer.Value ?? throw new InvalidOperationException("Failed to get search query");
+        _logger.LogInformation("""Answer retrieved from 'GetChatCompletionsAsync': '{Answer}'""", aiAnswer);
+
+        var aiMessage = aiAnswer.Choices[0]?.Message;
+        var ans = aiMessage?.Content ?? throw new InvalidOperationException("Failed to get answer");
+        var thoughts = "";
+
+        // step 4
+        // add follow up questions if requested
+        if (overrides?.SuggestFollowupQuestions is true)
+        {
+            messages = new List<ChatRequestMessage>()
+            {
+                new ChatRequestSystemMessage(@"You are a helpful AI assistant"),
+                new ChatRequestUserMessage($@"Generate three follow-up question based on the answer you just generated.
+                    # Answer
+                    {ans}
+
+                    # Format of the response
+                    Return the follow-up question as a json string list. Don't put your answer between ```json and ```, return the json string directly.
+                    e.g.
+                    [
+                        ""What is the deductible?"",
+                        ""What is the co-pay?"",
+                        ""What is the out-of-pocket maximum?""
+                    ]")
+            };
+            chatCompletionsOptions = new ChatCompletionsOptions(aiDeploymentName, messages)
+            {
+                ResponseFormat = ChatCompletionsResponseFormat.JsonObject
+            };
+
+            var followUpQuestionsAnswer = await _openAIClient.GetChatCompletionsAsync(chatCompletionsOptions, cancellationToken: cancellationToken);
+
+            var followUpQuestionsAIAnswer = followUpQuestionsAnswer.Value ?? throw new InvalidOperationException("Failed to get followUp questions");
+            _logger.LogInformation("""Answer retrieved from 'GetChatCompletionsAsync': '{Answer}'""", followUpQuestionsAIAnswer);
+
+            var followUpQuestionsAIMessage = followUpQuestionsAIAnswer.Choices[0]?.Message;
+            var followUpQuestions = followUpQuestionsAIMessage?.Content ?? throw new InvalidOperationException("Failed to get answer");
+
+            var followUpQuestionsObject = JsonSerializer.Deserialize<JsonElement>(followUpQuestions);
+            var followUpQuestionsList = followUpQuestionsObject.EnumerateArray().Select(x => x.GetString()).ToList();
+
+            foreach (var followUpQuestion in followUpQuestionsList)
+            {
+                ans += $" <<{followUpQuestion}>> ";
+            }
+        }
+
+        var documentContentList = new SupportingContentRecord[aiMessage.AzureExtensionsContext.Citations.Count];
+        for (var x = 0; x < aiMessage.AzureExtensionsContext.Citations.Count; x++)
+        {
+            var citation = aiMessage.AzureExtensionsContext.Citations.ElementAt(x);
+
+            documentContentList[x] = new SupportingContentRecord(citation.Filepath, citation.Content);
+
+            // Format the response by adding the desired document reference
+            ans = ans.Replace($"[doc{x + 1}]", $"[{citation.Filepath}]");
+        }
+
+        return new ApproachResponse(ans, thoughts, documentContentList, null, _appSettings.ToCitationBaseUrl());
     }
 
     #endregion Public Methods
