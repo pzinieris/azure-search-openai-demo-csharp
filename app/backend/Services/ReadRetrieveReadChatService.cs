@@ -340,7 +340,7 @@ public class ReadRetrieveReadChatService
                     new AzureSearchChatExtensionConfiguration()
                     {
                         SearchEndpoint = new Uri(azureSearchServiceEndpoint),
-                        Authentication = new OnYourDataSystemAssignedManagedIdentityAuthenticationOptions(),
+                        Authentication = new OnYourDataUserAssignedManagedIdentityAuthenticationOptions(_appSettings.AzureOpenAiIdentityName),
                         IndexName = azureSearchIndex,
                         DocumentCount = overrides?.Top ?? 5,
                         QueryType = queryType,
