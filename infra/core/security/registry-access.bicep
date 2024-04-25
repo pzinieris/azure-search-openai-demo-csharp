@@ -3,7 +3,7 @@ param principalId string
 
 var abbrs = loadJsonContent('../../abbreviations.json')
 
-var acrPullRole = subscriptionResourceId('Microsoft.Authorization/roleDefinitions', '${abbrs.roleAcrPull')
+var acrPullRole = subscriptionResourceId('Microsoft.Authorization/roleDefinitions', '${abbrs.roleAcrPull}')
 
 resource aksAcrPull 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
   scope: containerRegistry // Use when specifying a scope that is different than the deployment scope
