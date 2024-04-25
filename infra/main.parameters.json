@@ -38,10 +38,13 @@
     "openAiSkuName": {
       "value": "S0"
     },
-    "principalId": {
+	"openAiIdentityName": {
+	  "value": "PZTestOpenAINewIdentity"
+	},
+    "userOrServicePrincipalId": {
       "value": "836d3253-0060-413c-a516-6ba9f1f4d5b2"
     },
-    "principalType": {
+    "userOrServicePrincipalType": {
       "value": "${AZURE_PRINCIPAL_TYPE=User}"
     },
     "resourceGroupName": {
@@ -72,7 +75,7 @@
       "value": "${SERVICE_WEB_RESOURCE_EXISTS=false}"
     },
     "webIdentityName": {
-      "value": "PZTestWebApp"
+      "value": "PZTestWebAppIdentity"
     },
     "useApplicationInsights": {
       "value": "${AZURE_USE_APPLICATION_INSIGHTS=true}"
@@ -80,7 +83,7 @@
     "useAOAI": {
       "value": "${USE_AOAI=true}"
     },
-	// Open AI
+	
 	"openAIApiKey": {
       "value": " "
     },
@@ -90,7 +93,7 @@
     "openAiEmbeddingDeployment":{
       "value": "${OPENAI_EMBEDDING_DEPLOYMENT=text-embedding-ada-002}"
     },
-	// Azure Open AI
+	
 	"chatGptModelName":{
 		"value": "${AZURE_OPENAI_CHAT_GPT_MODEL_NAME=gpt-4-32k}"
 	},
@@ -103,7 +106,7 @@
     "azureEmbeddingDeploymentName":{
       "value": "Text-Embedding-ADA-002"
     },
-	// Azure Vision
+	
 	"useVision" : {
       "value": "${USE_VISION=false}"
     },

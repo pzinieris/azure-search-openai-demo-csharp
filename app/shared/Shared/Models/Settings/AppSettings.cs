@@ -9,11 +9,12 @@ public sealed class AppSettings
     // Open AI
     public string? OpenAIApiKey { get; set; }
     public string? OpenAiChatGptDeployment { get; set; }
-    public string? OpenAiEmbeddingDeployment { get; set; }
+    public string? OpenAiEmbeddingDeployment { get; set; }    
     // Azure Open AI
     public string? AzureOpenAiChatGptDeployment { get; set; }
     public string? AzureOpenAiEmbeddingDeployment { get; set; }
     public string? AzureOpenAiServiceEndpoint { get; set; }
+    public string? AzureOpenAiIdentityName { get; set; }
 
     // Azure Open AI GPT4 with Vision
     public bool UseVision { get; set; }

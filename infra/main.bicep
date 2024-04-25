@@ -92,11 +92,14 @@ param openAiServiceName string = ''
 @description('SKU name for the OpenAI service. Default: S0')
 param openAiSkuName string = 'S0'
 
-@description('ID of the principal')
-param principalId string = ''
+@description('Name of the OpenAI service')
+param openAiIdentityName string = ''
+
+@description('ID of the User or ServicePrincipal who will be given the same rights as the web app')
+param userOrServicePrincipalId string = ''
 
 @description('Type of the principal. Valid values: User,ServicePrincipal')
-param principalType string = 'User'
+param userOrServicePrincipalType string = 'User'
 
 @description('Name of the resource group')
 param resourceGroupName string = ''
@@ -209,7 +212,7 @@ module keyVault 'core/security/keyvault.bicep' = {
     name: !empty(keyVaultName) ? keyVaultName : '${abbrs.keyVaultVaults}${resourceToken}'
     location: keyVaultResourceGroupLocation
     tags: updatedTags
-    principalId: principalId
+    principalId: userOrServicePrincipalId
   }
 }
 
@@ -219,8 +222,7 @@ module keyVaultSecrets 'core/security/keyvault-secrets.bicep' = {
   params: {
     keyVaultName: keyVault.outputs.name
     tags: updatedTags
-    secrets: concat([
-      
+    secrets: concat([      
       {
         name: 'AzureSearchServiceEndpoint'
         value: searchService.outputs.endpoint
@@ -249,6 +251,10 @@ module keyVaultSecrets 'core/security/keyvault-secrets.bicep' = {
         name: 'UseVision'
         value: useVision ? 'true' : 'false'
       }
+	  {
+        name: 'AzureOpenAiIdentityName'
+        value: openAi.outputs.SERVICE_COGNITIVE_IDENTITY_NAME
+      }	  
     ],
     useAOAI ? [
       {
@@ -294,7 +300,7 @@ module keyVaultSecrets 'core/security/keyvault-secrets.bicep' = {
   }
 }
 
-// Container apps host (including container registry)
+// Container apps host (including container registry that will add the role AcrPull)
 module containerApps 'core/host/container-apps.bicep' = {
   name: 'container-apps'
   scope: resourceGroup
@@ -396,6 +402,7 @@ module openAi 'core/ai/cognitiveservices.bicep' = if (useAOAI) {
   params: {
     name: !empty(openAiServiceName) ? openAiServiceName : '${abbrs.cognitiveServicesAccounts}${resourceToken}'
     location: openAiResourceGroupLocation
+	identityName: !empty(openAiIdentityName) ? openAiIdentityName : '${abbrs.managedIdentityUserAssignedIdentities}web-${resourceToken}'
     tags: updatedTags
     sku: {
       name: openAiSkuName
@@ -436,6 +443,7 @@ module formRecognizer 'core/ai/cognitiveservices.bicep' = {
     name: !empty(formRecognizerServiceName) ? formRecognizerServiceName : '${abbrs.cognitiveServicesFormRecognizer}${resourceToken}'
     kind: 'FormRecognizer'
     location: formRecognizerResourceGroupLocation
+	identityName: ''
     tags: updatedTags
     sku: {
       name: formRecognizerSkuName
@@ -487,73 +495,53 @@ module storage 'core/storage/storage-account.bicep' = {
 }
 
 // USER ROLES
-module openAiRoleUser 'core/security/role.bicep' = {
+module openAiRoleUser 'core/security/role.bicep' = if(!empty(userOrServicePrincipalId)) {
   scope: openAiResourceGroup
   name: 'openai-role-user'
   params: {
-    principalId: principalId
-    roleDefinitionId: '5e0bd9bd-7b93-4f28-af87-19fc36ad61bd'
-    principalType: principalType
+    principalId: userOrServicePrincipalId
+    roleDefinitionId: '${abbrs.roleCognitiveServicesOpenAIUser}'
+    principalType: userOrServicePrincipalType
   }
 }
 
-module formRecognizerRoleUser 'core/security/role.bicep' = {
+module formRecognizerRoleUser 'core/security/role.bicep' = if(!empty(userOrServicePrincipalId)) {
   scope: formRecognizerResourceGroup
   name: 'formrecognizer-role-user'
   params: {
-    principalId: principalId
-    roleDefinitionId: 'a97b65f3-24c7-4388-baec-2e87135dc908'
-    principalType: principalType
+    principalId: userOrServicePrincipalId
+    roleDefinitionId: '${abbrs.roleCognitiveServicesUser}'
+    principalType: userOrServicePrincipalType
   }
 }
 
-module storageRoleUser 'core/security/role.bicep' = {
-  scope: storageResourceGroup
-  name: 'storage-role-user'
-  params: {
-    principalId: principalId
-    roleDefinitionId: '2a2b9908-6ea1-4ae2-8e65-a410df84e7d1'
-    principalType: principalType
-  }
-}
-
-module storageContribRoleUser 'core/security/role.bicep' = {
+module storageContribRoleUser 'core/security/role.bicep' = if(!empty(userOrServicePrincipalId)) {
   scope: storageResourceGroup
   name: 'storage-contribrole-user'
   params: {
-    principalId: principalId
-    roleDefinitionId: 'ba92f5b4-2d11-453d-a403-e96b0029c9fe'
-    principalType: principalType
+    principalId: userOrServicePrincipalId
+    roleDefinitionId: '${abbrs.roleStorageBlobDataContributor}'
+    principalType: userOrServicePrincipalType
   }
 }
 
-module searchRoleUser 'core/security/role.bicep' = {
-  scope: searchServiceResourceGroup
-  name: 'search-role-user'
-  params: {
-    principalId: principalId
-    roleDefinitionId: '1407120a-92aa-4202-b7e9-c0e197c71c8f'
-    principalType: principalType
-  }
-}
-
-module searchContribRoleUser 'core/security/role.bicep' = {
+module searchContribRoleUser 'core/security/role.bicep' = if(!empty(userOrServicePrincipalId)) {
   scope: searchServiceResourceGroup
   name: 'search-contrib-role-user'
   params: {
-    principalId: principalId
-    roleDefinitionId: '8ebe5a00-799e-43f5-93ac-243d3dce84a7'
-    principalType: principalType
+    principalId: userOrServicePrincipalId
+    roleDefinitionId: '${abbrs.roleSearchIndexDataContributor}'
+    principalType: userOrServicePrincipalType
   }
 }
 
-module searchSvcContribRoleUser 'core/security/role.bicep' = {
+module searchSvcContribRoleUser 'core/security/role.bicep' = if(!empty(userOrServicePrincipalId)) {
   scope: searchServiceResourceGroup
   name: 'search-svccontrib-role-user'
   params: {
-    principalId: principalId
-    roleDefinitionId: '7ca78c08-252a-4471-8644-bb5ff32d4ba0'
-    principalType: principalType
+    principalId: userOrServicePrincipalId
+    roleDefinitionId: '${abbrs.roleSearchServiceContributor}'
+    principalType: userOrServicePrincipalType
   }
 }
 
@@ -563,7 +551,7 @@ module openAiRoleFunction 'core/security/role.bicep' = {
   name: 'openai-role-function'
   params: {
     principalId: function.outputs.SERVICE_FUNCTION_IDENTITY_PRINCIPAL_ID
-    roleDefinitionId: '5e0bd9bd-7b93-4f28-af87-19fc36ad61bd'
+    roleDefinitionId: '${abbrs.roleCognitiveServicesOpenAIUser}'
     principalType: 'ServicePrincipal'
   }
 }
@@ -573,17 +561,7 @@ module formRecognizerRoleFunction 'core/security/role.bicep' = {
   name: 'formrecognizer-role-function'
   params: {
     principalId: function.outputs.SERVICE_FUNCTION_IDENTITY_PRINCIPAL_ID
-    roleDefinitionId: 'a97b65f3-24c7-4388-baec-2e87135dc908'
-    principalType: 'ServicePrincipal'
-  }
-}
-
-module storageRoleFunction 'core/security/role.bicep' = {
-  scope: storageResourceGroup
-  name: 'storage-role-function'
-  params: {
-    principalId: function.outputs.SERVICE_FUNCTION_IDENTITY_PRINCIPAL_ID
-    roleDefinitionId: '2a2b9908-6ea1-4ae2-8e65-a410df84e7d1'
+    roleDefinitionId: '${abbrs.roleCognitiveServicesUser}'
     principalType: 'ServicePrincipal'
   }
 }
@@ -593,17 +571,7 @@ module storageContribRoleFunction 'core/security/role.bicep' = {
   name: 'storage-contribrole-function'
   params: {
     principalId: function.outputs.SERVICE_FUNCTION_IDENTITY_PRINCIPAL_ID
-    roleDefinitionId: 'ba92f5b4-2d11-453d-a403-e96b0029c9fe'
-    principalType: 'ServicePrincipal'
-  }
-}
-
-module searchRoleFunction 'core/security/role.bicep' = {
-  scope: searchServiceResourceGroup
-  name: 'search-role-function'
-  params: {
-    principalId: function.outputs.SERVICE_FUNCTION_IDENTITY_PRINCIPAL_ID
-    roleDefinitionId: '1407120a-92aa-4202-b7e9-c0e197c71c8f'
+    roleDefinitionId: '${abbrs.roleStorageBlobDataContributor}'
     principalType: 'ServicePrincipal'
   }
 }
@@ -613,7 +581,7 @@ module searchContribRoleFunction 'core/security/role.bicep' = {
   name: 'search-contrib-role-function'
   params: {
     principalId: function.outputs.SERVICE_FUNCTION_IDENTITY_PRINCIPAL_ID
-    roleDefinitionId: '8ebe5a00-799e-43f5-93ac-243d3dce84a7'
+    roleDefinitionId: '${abbrs.roleSearchIndexDataContributor}'
     principalType: 'ServicePrincipal'
   }
 }
@@ -623,28 +591,29 @@ module searchSvcContribRoleFunction 'core/security/role.bicep' = {
   name: 'search-svccontrib-role-function'
   params: {
     principalId: function.outputs.SERVICE_FUNCTION_IDENTITY_PRINCIPAL_ID
-    roleDefinitionId: '7ca78c08-252a-4471-8644-bb5ff32d4ba0'
+    roleDefinitionId: '${abbrs.roleSearchServiceContributor}'
     principalType: 'ServicePrincipal'
   }
 }
 
 // SYSTEM IDENTITIES
+// Web roles
 module openAiRoleBackend 'core/security/role.bicep' = {
   scope: openAiResourceGroup
   name: 'openai-role-backend'
   params: {
     principalId: web.outputs.SERVICE_WEB_IDENTITY_PRINCIPAL_ID
-    roleDefinitionId: '5e0bd9bd-7b93-4f28-af87-19fc36ad61bd'
+    roleDefinitionId: '${abbrs.roleCognitiveServicesOpenAIUser}'
     principalType: 'ServicePrincipal'
   }
 }
 
-module storageRoleBackend 'core/security/role.bicep' = {
-  scope: storageResourceGroup
-  name: 'storage-role-backend'
+module formRecognizerRoleBackend 'core/security/role.bicep' = {
+  scope: openAiResourceGroup
+  name: 'formrecognizer-role-backend'
   params: {
     principalId: web.outputs.SERVICE_WEB_IDENTITY_PRINCIPAL_ID
-    roleDefinitionId: '2a2b9908-6ea1-4ae2-8e65-a410df84e7d1'
+    roleDefinitionId: '${abbrs.roleCognitiveServicesUser}'
     principalType: 'ServicePrincipal'
   }
 }
@@ -654,7 +623,7 @@ module storageContribRoleBackend 'core/security/role.bicep' = {
   name: 'storage-contribrole-backend'
   params: {
     principalId: web.outputs.SERVICE_WEB_IDENTITY_PRINCIPAL_ID
-    roleDefinitionId: 'ba92f5b4-2d11-453d-a403-e96b0029c9fe'
+    roleDefinitionId: '${abbrs.roleStorageBlobDataContributor}'
     principalType: 'ServicePrincipal'
   }
 }
@@ -664,7 +633,28 @@ module searchRoleBackend 'core/security/role.bicep' = {
   name: 'search-role-backend'
   params: {
     principalId: web.outputs.SERVICE_WEB_IDENTITY_PRINCIPAL_ID
-    roleDefinitionId: '1407120a-92aa-4202-b7e9-c0e197c71c8f'
+    roleDefinitionId: '${abbrs.roleSearchIndexDataReader}'
+    principalType: 'ServicePrincipal'
+  }
+}
+
+// OpenAI roles
+module searchIndexDataReaderRoleOpenAI 'core/security/role.bicep' = {
+  scope: openAiResourceGroup
+  name: 'search-index-data-reader-role-open-ai'
+  params: {
+    principalId: openAi.outputs.SERVICE_COGNITIVE_IDENTITY_PRINCIPAL_ID
+    roleDefinitionId: '${abbrs.roleSearchIndexDataReader}'
+    principalType: 'ServicePrincipal'
+  }
+}
+
+module searchSvcContribRoleOpenAI 'core/security/role.bicep' = {
+  scope: openAiResourceGroup
+  name: 'search-svccontrib-role-open-ai'
+  params: {
+    principalId: openAi.outputs.SERVICE_COGNITIVE_IDENTITY_PRINCIPAL_ID
+    roleDefinitionId: '${abbrs.roleSearchServiceContributor}'
     principalType: 'ServicePrincipal'
   }
 }
@@ -688,6 +678,8 @@ output AZURE_OPENAI_EMBEDDING_DEPLOYMENT string = azureEmbeddingDeploymentName
 output AZURE_OPENAI_ENDPOINT string = openAi.outputs.endpoint
 output AZURE_OPENAI_RESOURCE_GROUP string = openAiResourceGroup.name
 output AZURE_OPENAI_SERVICE string = openAi.outputs.name
+output AZURE_OPENAI_SERVICE_IDENTITY_NAME string = openAi.outputs.SERVICE_COGNITIVE_IDENTITY_NAME
+output AZURE_OPENAI_SERVICE_IDENTITY_PRINCIPAL_ID string = openAi.outputs.SERVICE_COGNITIVE_IDENTITY_PRINCIPAL_ID
 output AZURE_RESOURCE_GROUP string = resourceGroup.name
 output AZURE_SEARCH_INDEX string = searchIndexName
 output AZURE_SEARCH_SERVICE string = searchService.outputs.name
