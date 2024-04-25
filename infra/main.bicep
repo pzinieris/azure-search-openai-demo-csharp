@@ -443,6 +443,7 @@ module formRecognizer 'core/ai/cognitiveservices.bicep' = {
     name: !empty(formRecognizerServiceName) ? formRecognizerServiceName : '${abbrs.cognitiveServicesFormRecognizer}${resourceToken}'
     kind: 'FormRecognizer'
     location: formRecognizerResourceGroupLocation
+	identityName: ''
     tags: updatedTags
     sku: {
       name: formRecognizerSkuName
@@ -677,6 +678,8 @@ output AZURE_OPENAI_EMBEDDING_DEPLOYMENT string = azureEmbeddingDeploymentName
 output AZURE_OPENAI_ENDPOINT string = openAi.outputs.endpoint
 output AZURE_OPENAI_RESOURCE_GROUP string = openAiResourceGroup.name
 output AZURE_OPENAI_SERVICE string = openAi.outputs.name
+output AZURE_OPENAI_SERVICE_IDENTITY_NAME string = openAi.outputs.SERVICE_COGNITIVE_IDENTITY_NAME
+output AZURE_OPENAI_SERVICE_IDENTITY_PRINCIPAL_ID string = openAi.outputs.SERVICE_COGNITIVE_IDENTITY_PRINCIPAL_ID
 output AZURE_RESOURCE_GROUP string = resourceGroup.name
 output AZURE_SEARCH_INDEX string = searchIndexName
 output AZURE_SEARCH_SERVICE string = searchService.outputs.name

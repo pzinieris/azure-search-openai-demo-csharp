@@ -4,6 +4,9 @@ param tags object = {}
 @description('The custom subdomain name used to access the API. Defaults to the value of the name parameter.')
 param customSubDomainName string = name
 
+@description('The name of the identity')
+param identityName string
+
 param deployments array = []
 param kind string = 'OpenAI'
 
@@ -22,11 +25,22 @@ param networkAcls object = empty(allowedIpRules) ? {
   defaultAction: 'Deny'
 }
 
+resource cognitiveServicesIdentity 'Microsoft.ManagedIdentity/userAssignedIdentities@2023-01-31' = if (!empty(identityName)) {
+  name: identityName
+  location: location
+}
+
 resource account 'Microsoft.CognitiveServices/accounts@2023-05-01' = {
   name: name
   location: location
   tags: tags
   kind: kind
+  identity: empty(identityName) 
+	? {} 
+	: {
+    type: 'UserAssigned'
+    userAssignedIdentities: { '${cognitiveServicesIdentity.id}': {} }
+  }
   properties: {
     customSubDomainName: customSubDomainName
     publicNetworkAccess: publicNetworkAccess
@@ -52,3 +66,5 @@ resource deployment 'Microsoft.CognitiveServices/accounts/deployments@2023-05-01
 output endpoint string = account.properties.endpoint
 output id string = account.id
 output name string = account.name
+output SERVICE_COGNITIVE_IDENTITY_NAME string = identityName
+output SERVICE_COGNITIVE_IDENTITY_PRINCIPAL_ID string = cognitiveServicesIdentity.properties.principalId
