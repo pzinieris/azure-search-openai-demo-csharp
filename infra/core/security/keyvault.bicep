@@ -14,7 +14,7 @@ resource keyVault 'Microsoft.KeyVault/vaults@2022-07-01' = {
   }
 }
 
-module webKeyVaultAccess '../core/security/keyvault-access.bicep' = if(!empty(principalId)) {
+module webKeyVaultAccess 'keyvault-access.bicep' = if(!empty(principalId)) {
   name: 'principalId-keyvault-access'
   scope: resourceGroup(resourceGroup().name)
   params: {

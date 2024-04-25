@@ -1,7 +1,7 @@
 param containerRegistryName string
 param principalId string
 
-var abbrs = loadJsonContent('core/security/abbreviations.json')
+var abbrs = loadJsonContent('../../abbreviations.json')
 
 var acrPullRole = subscriptionResourceId('Microsoft.Authorization/roleDefinitions', '${abbrs.roleAcrPull')
 
