@@ -14,7 +14,6 @@ public sealed class AppSettings
     public string? AzureOpenAiChatGptDeployment { get; set; }
     public string? AzureOpenAiEmbeddingDeployment { get; set; }
     public string? AzureOpenAiServiceEndpoint { get; set; }
-    public string? AzureOpenAiIdentityName { get; set; }
 
     // Azure Open AI GPT4 with Vision
     public bool UseVision { get; set; }
