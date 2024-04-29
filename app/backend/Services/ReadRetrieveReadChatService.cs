@@ -340,7 +340,7 @@ public class ReadRetrieveReadChatService
                     new AzureSearchChatExtensionConfiguration()
                     {
                         SearchEndpoint = new Uri(azureSearchServiceEndpoint),
-                        Authentication = new OnYourDataUserAssignedManagedIdentityAuthenticationOptions(_appSettings.AzureOpenAiIdentityName),
+                        Authentication = new OnYourDataSystemAssignedManagedIdentityAuthenticationOptions(),
                         IndexName = azureSearchIndex,
                         DocumentCount = overrides?.Top ?? 5,
                         QueryType = queryType,
@@ -362,7 +362,6 @@ public class ReadRetrieveReadChatService
                     }
                 }
             }
-            //ResponseFormat = ChatCompletionsResponseFormat.JsonObject
         };
 
         // get answer
@@ -396,10 +395,7 @@ public class ReadRetrieveReadChatService
                         ""What is the out-of-pocket maximum?""
                     ]")
             };
-            chatCompletionsOptions = new ChatCompletionsOptions(aiDeploymentName, messages)
-            {
-                ResponseFormat = ChatCompletionsResponseFormat.JsonObject
-            };
+            chatCompletionsOptions = new ChatCompletionsOptions(aiDeploymentName, messages);
 
             var followUpQuestionsAnswer = await _openAIClient.GetChatCompletionsAsync(chatCompletionsOptions, cancellationToken: cancellationToken);
 
