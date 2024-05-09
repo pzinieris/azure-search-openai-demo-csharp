@@ -59,7 +59,7 @@ public class AzureSearchService(SearchClient searchClient) : ISearchService
                 // candidates for semantic reranking
                 KNearestNeighborsCount = useSemanticRanker ? 50 : top,
             };
-            vectorQuery.Fields.Add(nameof(VectorizeSearchEntity.Embedding).GetJsonPropertyNameAttributeValue(typeof(VectorizeSearchEntity)));
+            vectorQuery.Fields.Add(VectorizeSearchEntity.EmbeddingAsJsonPropertyName());
 
             searchOptions.VectorSearch = new();
             searchOptions.VectorSearch.Queries.Add(vectorQuery);

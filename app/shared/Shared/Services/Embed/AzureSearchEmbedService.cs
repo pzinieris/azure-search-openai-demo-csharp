@@ -152,12 +152,12 @@ public sealed partial class AzureSearchEmbedService : AzureFormRecognizerDocumen
             },
             Fields =
             {
-                new SimpleField("""id""", SearchFieldDataType.String) { IsKey = true },
-                new SearchableField("""content""") { AnalyzerName = LexicalAnalyzerName.EnMicrosoft },
-                new SimpleField("""category""", SearchFieldDataType.String) { IsFacetable = true },
-                new SimpleField("""sourcepage""", SearchFieldDataType.String) { IsFacetable = true },
-                new SimpleField("""sourcefile""", SearchFieldDataType.String) { IsFacetable = true },
-                new SearchField("""embedding""", SearchFieldDataType.Collection(SearchFieldDataType.Single))
+                new SimpleField(VectorizeSearchEntity.IdAsJsonPropertyName(), SearchFieldDataType.String) { IsKey = true },
+                new SearchableField(VectorizeSearchEntity.ContentAsJsonPropertyName()) { AnalyzerName = LexicalAnalyzerName.EnMicrosoft },
+                new SimpleField(VectorizeSearchEntity.CategoryAsJsonPropertyName(), SearchFieldDataType.String) { IsFacetable = true },
+                new SimpleField(VectorizeSearchEntity.SourcePageAsJsonPropertyName(), SearchFieldDataType.String) { IsFacetable = true },
+                new SimpleField(VectorizeSearchEntity.SourceFileAsJsonPropertyName(), SearchFieldDataType.String) { IsFacetable = true },
+                new SearchField(VectorizeSearchEntity.EmbeddingAsJsonPropertyName(), SearchFieldDataType.Collection(SearchFieldDataType.Single))
                 {
                     VectorSearchDimensions = 1536,
                     IsSearchable = true,
@@ -188,7 +188,7 @@ public sealed partial class AzureSearchEmbedService : AzureFormRecognizerDocumen
                 throw new InvalidOperationException("""Computer Vision service is required to include image embeddings field""");
             }
 
-            index.Fields.Add(new SearchField("""imageEmbedding""", SearchFieldDataType.Collection(SearchFieldDataType.Single))
+            index.Fields.Add(new SearchField(VectorizeSearchEntity.ImageEmbeddingAsJsonPropertyName(), SearchFieldDataType.Collection(SearchFieldDataType.Single))
             {
                 VectorSearchDimensions = _computerVisionService.Dimension,
                 IsSearchable = true,
