@@ -1,4 +1,6 @@
 ﻿using System.Text.Json.Serialization;
+using Azure.Search.Documents.Models;
+using Shared.Extensions;
 
 namespace Shared.Domain;
 public sealed class VectorizeSearchEntity
@@ -32,11 +34,11 @@ public sealed class VectorizeSearchEntity
     }
     [JsonIgnore]
     public VectorizeSearchCategory CategoryEnum { get; set; }
-    [JsonPropertyName("sourcefile")]
+    [JsonPropertyName("sourceFile")]
     public string SourceFile { get; set; }
 
     // Document
-    [JsonPropertyName("sourcepage")]
+    [JsonPropertyName("sourcePage")]
     public string? SourcePage { get; set; }
     [JsonPropertyName("embedding")]
     public float[]? Embedding { get; set; }
@@ -85,6 +87,35 @@ public sealed class VectorizeSearchEntity
     }
 
     #endregion Static Methods
+
+    public SearchDocument AsSearchDocument()
+    {
+        if (CategoryEnum == VectorizeSearchCategory.Document)
+        {
+            return new SearchDocument
+            {
+                [$"""{this.GetJsonPropertyNameAttributeValue(nameof(VectorizeSearchEntity.Id))}"""] = Id,
+                [$"""{this.GetJsonPropertyNameAttributeValue(nameof(VectorizeSearchEntity.Content))}"""] = Content,
+                [$"""{this.GetJsonPropertyNameAttributeValue(nameof(VectorizeSearchEntity.Category))}"""] = Category,
+                [$"""{this.GetJsonPropertyNameAttributeValue(nameof(VectorizeSearchEntity.SourcePage))}"""] = SourcePage,
+                [$"""{this.GetJsonPropertyNameAttributeValue(nameof(VectorizeSearchEntity.SourceFile))}"""] = SourceFile,
+                [$"""{this.GetJsonPropertyNameAttributeValue(nameof(VectorizeSearchEntity.Embedding))}"""] = Embedding,
+            };
+        }
+        else if (CategoryEnum == VectorizeSearchCategory.Image)
+        {
+            return new SearchDocument
+            {
+                [$"""{this.GetJsonPropertyNameAttributeValue(nameof(VectorizeSearchEntity.Id))}"""] = Id,
+                [$"""{this.GetJsonPropertyNameAttributeValue(nameof(VectorizeSearchEntity.Content))}"""] = Content,
+                [$"""{this.GetJsonPropertyNameAttributeValue(nameof(VectorizeSearchEntity.Category))}"""] = Category,
+                [$"""{this.GetJsonPropertyNameAttributeValue(nameof(VectorizeSearchEntity.SourceFile))}"""] = SourceFile,
+                [$"""{this.GetJsonPropertyNameAttributeValue(nameof(VectorizeSearchEntity.ImageEmbedding))}"""] = ImageEmbedding,
+            };
+        }
+
+        throw new ArgumentException($"Category: {CategoryEnum.ToString()} is not mapped");
+    }
 
     // https://www.newtonsoft.com/json/help/html/ConditionalProperties.htm
     public bool ShouldSerializeScore()

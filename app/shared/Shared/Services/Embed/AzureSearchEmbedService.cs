@@ -439,15 +439,8 @@ public sealed partial class AzureSearchEmbedService : AzureFormRecognizerDocumen
         for (var x = 0; x < batch.Actions.Count; x++)
         {
             var document = batch.Actions[x];
-            var json = JsonConvert.SerializeObject(document);
-            var jsonObject = JsonNode.Parse(json)?.AsObject();
 
-            IndexActionType actionType = (IndexActionType)((int)jsonObject[nameof(document.ActionType)]);
-
-            var documentProperties = JsonConvert.DeserializeObject<Dictionary<string, object>>(jsonObject[nameof(document.Document)].ToJsonString());
-            var newDocument = new SearchDocument(documentProperties);
-
-            var newAction = new IndexDocumentsAction<SearchDocument>(actionType, newDocument);
+            var newAction = new IndexDocumentsAction<SearchDocument>(document.ActionType, document.Document.AsSearchDocument());
             parsedBatch.Actions.Add(newAction);
         }
 
