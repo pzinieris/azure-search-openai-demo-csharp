@@ -1,12 +1,9 @@
 ﻿using Microsoft.Azure.Functions.Worker;
 
 public sealed class EmbeddingFunction(
-    EmbeddingAggregateService embeddingAggregateService,
-    ILoggerFactory loggerFactory)
+    EmbeddingAggregateService embeddingAggregateService)
 {
-    private readonly ILogger<EmbeddingFunction> _logger = loggerFactory.CreateLogger<EmbeddingFunction>();
-
-    [Function(name: "embed-blob")]
+    [Function(name: nameof(EmbeddingFunction))]
     public Task EmbedAsync(
         [BlobTrigger(
             blobPath: "content/{name}",

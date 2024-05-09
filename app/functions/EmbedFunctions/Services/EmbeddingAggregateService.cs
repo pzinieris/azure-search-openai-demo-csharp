@@ -1,21 +1,42 @@
-﻿using Shared.Enum;
+﻿using Microsoft.Extensions.Configuration;
+using Shared.Enum;
 using Shared.Factory;
+using Shared.Models.Settings;
 
 namespace EmbedFunctions.Services;
 
-public sealed class EmbeddingAggregateService(
-    EmbedServiceFactory embedServiceFactory,
-    BlobContainerClientFactory blobContainerClientFactory,
-    ILogger<EmbeddingAggregateService> logger)
+public class EmbeddingAggregateService
 {
+    #region Fields
+
+    private readonly EmbedServiceFactory _embedServiceFactory;
+    private readonly BlobContainerClientFactory _blobContainerClientFactory;
+    private readonly ILogger<EmbeddingAggregateService> _logger;
+    private readonly AppSettings _appSettings;
+
+    #endregion Fields
+
+    #region Contructor/s
+
+    public EmbeddingAggregateService(EmbedServiceFactory embedServiceFactory, BlobContainerClientFactory blobContainerClientFactory,
+        ILogger<EmbeddingAggregateService> logger, IConfiguration config, AppSettings appSettings)
+    {
+        _embedServiceFactory = embedServiceFactory;
+        _blobContainerClientFactory = blobContainerClientFactory;
+        _logger = logger;
+        _appSettings = appSettings;
+    }
+
+    #endregion Contructor/s
+
     internal async Task EmbedBlobAsync(Stream blobStream, string blobName)
     {
         try
         {
             // Because below we update the source blob metadata, causing the BlobTrigger to be triggered again,
-            // we fist need make sure that this is not a re-triggering before continuing with the intexing
-            var sourceStorageContainer = Environment.GetEnvironmentVariable("AzureStorageContainer");
-            var sourceBlobContainerClient = await blobContainerClientFactory.GetBlobContainerClientAsync(BlobContainerName.Custom, sourceStorageContainer);
+            // we fist need make sure that this is not a re-triggering before continuing with the indexing
+            var sourceStorageContainer = _appSettings.AzureStorageContainer;
+            var sourceBlobContainerClient = await _blobContainerClientFactory.GetBlobContainerClientAsync(BlobContainerName.Custom, sourceStorageContainer);
 
             var blobClient = sourceBlobContainerClient.GetBlobClient(blobName);
             var properties = await blobClient.GetPropertiesAsync();
@@ -23,12 +44,12 @@ public sealed class EmbeddingAggregateService(
 
             if (metadata.TryGetValue(nameof(DocumentProcessingStatus), out var status))
             {
-                logger.LogInformation("""Method {MethodName} has finished becasue the blob already has been intexed and has the status '{DocumentProcessingStatus}'""", nameof(EmbedBlobAsync), status);
+                _logger.LogInformation("""Method {MethodName} has finished because the blob already has been indexed and has the status '{DocumentProcessingStatus}'""", nameof(EmbedBlobAsync), status);
                 return;
             }
 
             var embeddingType = GetEmbeddingType();
-            var embedService = embedServiceFactory.GetEmbedService(embeddingType);
+            var embedService = _embedServiceFactory.GetEmbedService(embeddingType);
 
             var result = await embedService.EmbedPDFBlobAsync(blobStream, blobName);
 
@@ -37,11 +58,11 @@ public sealed class EmbeddingAggregateService(
             var documentProcessingStatus = result ? DocumentProcessingStatus.Succeeded : DocumentProcessingStatus.Failed;
             await embedService.SetBlobMetadataAsync(blobClient, documentProcessingStatus);
 
-            logger.LogInformation("""Method {MethodName} has finished and returned value '{MethodResponse}'""", nameof(embedService.EmbedPDFBlobAsync), result);
+            _logger.LogInformation("""Method {MethodName} has finished and returned value '{MethodResponse}'""", nameof(embedService.EmbedPDFBlobAsync), result);
         }
         catch (Exception ex)
         {
-            logger.LogError(ex, "Failed to embed: {Name}, error: {Message}", blobName, ex.Message);
+            _logger.LogError(ex, "Failed to embed: {Name}, error: {Message}", blobName, ex.ToString());
         }
     }
 
