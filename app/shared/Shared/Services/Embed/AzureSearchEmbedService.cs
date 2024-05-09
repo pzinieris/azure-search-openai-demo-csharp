@@ -1,6 +1,8 @@
-﻿using System.Text;
+﻿using System.Net;
+using System.Text;
 using System.Text.Json.Nodes;
 using System.Text.RegularExpressions;
+using Azure;
 using Azure.AI.FormRecognizer.DocumentAnalysis;
 using Azure.AI.OpenAI;
 using Azure.Search.Documents;
@@ -150,12 +152,12 @@ public sealed partial class AzureSearchEmbedService : AzureFormRecognizerDocumen
             },
             Fields =
             {
-                new SimpleField("""id""", SearchFieldDataType.String) { IsKey = true },
-                new SearchableField("""content""") { AnalyzerName = LexicalAnalyzerName.EnMicrosoft },
-                new SimpleField("""category""", SearchFieldDataType.String) { IsFacetable = true },
-                new SimpleField("""sourcepage""", SearchFieldDataType.String) { IsFacetable = true },
-                new SimpleField("""sourcefile""", SearchFieldDataType.String) { IsFacetable = true },
-                new SearchField("""embedding""", SearchFieldDataType.Collection(SearchFieldDataType.Single))
+                new SimpleField(VectorizeSearchEntity.IdAsJsonPropertyName(), SearchFieldDataType.String) { IsKey = true },
+                new SearchableField(VectorizeSearchEntity.ContentAsJsonPropertyName()) { AnalyzerName = LexicalAnalyzerName.EnMicrosoft },
+                new SimpleField(VectorizeSearchEntity.CategoryAsJsonPropertyName(), SearchFieldDataType.String) { IsFacetable = true },
+                new SimpleField(VectorizeSearchEntity.SourcePageAsJsonPropertyName(), SearchFieldDataType.String) { IsFacetable = true },
+                new SimpleField(VectorizeSearchEntity.SourceFileAsJsonPropertyName(), SearchFieldDataType.String) { IsFacetable = true },
+                new SearchField(VectorizeSearchEntity.EmbeddingAsJsonPropertyName(), SearchFieldDataType.Collection(SearchFieldDataType.Single))
                 {
                     VectorSearchDimensions = 1536,
                     IsSearchable = true,
@@ -186,7 +188,7 @@ public sealed partial class AzureSearchEmbedService : AzureFormRecognizerDocumen
                 throw new InvalidOperationException("""Computer Vision service is required to include image embeddings field""");
             }
 
-            index.Fields.Add(new SearchField("""imageEmbedding""", SearchFieldDataType.Collection(SearchFieldDataType.Single))
+            index.Fields.Add(new SearchField(VectorizeSearchEntity.ImageEmbeddingAsJsonPropertyName(), SearchFieldDataType.Collection(SearchFieldDataType.Single))
             {
                 VectorSearchDimensions = _computerVisionService.Dimension,
                 IsSearchable = true,
@@ -194,7 +196,27 @@ public sealed partial class AzureSearchEmbedService : AzureFormRecognizerDocumen
             });
         }
 
-        await _searchIndexClient.CreateIndexAsync(index);
+        try
+        {
+            await _searchIndexClient.CreateIndexAsync(index);
+        }
+        catch (RequestFailedException failedException)
+        {
+            // This can happen on an initial creation of the index, were multiple blobs are trying to create the same index at the same time
+            if (failedException.Status == (int)HttpStatusCode.Conflict)
+            {
+                _logger?.LogWarning("""'{MethodName}' failed with the response code '{ResponseCode}' and message: '{ResponseMessage}'. Exception: {Exception}""",
+                    nameof(_searchIndexClient.CreateIndexAsync), failedException.Status, failedException.Message, failedException.ToString());
+            }
+            else
+            {
+                throw;
+            }
+        }
+        catch
+        {
+            throw;
+        }
     }
 
     public async Task EnsureSearchIndexAsync(string searchIndexName, CancellationToken ct = default)

@@ -4,13 +4,13 @@ using System.Text.Json.Serialization;
 namespace Shared.Extensions;
 public static class ReflectionExtensions
 {
-    public static string? GetJsonPropertyNameAttributeValue<T>(this T obj, string targetPropertyName)
+    public static string GetJsonPropertyNameAttributeValue<T>(this T obj, string targetPropertyName)
         where T : class
     {
         return targetPropertyName.GetJsonPropertyNameAttributeValue(typeof(T));
     }
 
-    public static string? GetJsonPropertyNameAttributeValue(this string targetPropertyName, Type objType)
+    public static string GetJsonPropertyNameAttributeValue(this string targetPropertyName, Type objType)
     {
         PropertyInfo[] properties = objType.GetProperties();
         foreach (PropertyInfo property in properties)
@@ -30,6 +30,6 @@ public static class ReflectionExtensions
             }
         }
 
-        return null;
+        throw new ArgumentException("""TargetPropertyName: '{TargetPropertyName}' does not exists in the object""", targetPropertyName);
     }
 }
