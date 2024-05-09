@@ -38,9 +38,6 @@
     "openAiSkuName": {
       "value": "S0"
     },
-	"openAiIdentityName": {
-	  "value": "PZTestOpenAINewIdentity"
-	},
     "userOrServicePrincipalId": {
       "value": "836d3253-0060-413c-a516-6ba9f1f4d5b2"
     },
@@ -70,6 +67,9 @@
     },
 	"storageSku": {
 	  "value": "Standard_LRS"
+	},
+	"functionServiceName": {
+	  "value": "PZTestFunction"
 	},
     "webAppExists": {
       "value": "${SERVICE_WEB_RESOURCE_EXISTS=false}"

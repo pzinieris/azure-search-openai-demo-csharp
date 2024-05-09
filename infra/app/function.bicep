@@ -5,9 +5,16 @@ param tags object = {}
 param allowedOrigins array = []
 param applicationInsightsName string = ''
 param appServicePlanId string
+
 @secure()
 param appSettings object = {}
-param keyVaultName string
+
+@description('The name of the Key Vault')
+param keyVaultName string = ''
+
+@description('The name of the Key Vault resource group')
+param keyVaultResourceGroupName string = resourceGroup().name
+
 param serviceName string = 'function'
 param storageAccountName string
 
@@ -23,6 +30,7 @@ module function '../core/host/functions.bicep' = {
     applicationInsightsName: applicationInsightsName
     appServicePlanId: appServicePlanId
     keyVaultName: keyVaultName
+	keyVaultResourceGroupName: keyVaultResourceGroupName
     runtimeName: 'dotnet-isolated'
     runtimeVersion: '8.0'
     storageAccountName: storageAccountName
