@@ -40,7 +40,7 @@ var host = new HostBuilder()
 #if DEBUG
         bool isLocal = true;
 #else
-        bool isLocal = true;
+        bool isLocal = false;
 #endif
         //bool isLocal = Environment.GetEnvironmentVariable("AZURE_FUNCTIONS_ENVIRONMENT") == "Development";
         TokenCredential credential = isLocal
