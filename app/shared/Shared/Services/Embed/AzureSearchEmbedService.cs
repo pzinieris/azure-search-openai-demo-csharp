@@ -1,6 +1,8 @@
-﻿using System.Text;
+﻿using System.Net;
+using System.Text;
 using System.Text.Json.Nodes;
 using System.Text.RegularExpressions;
+using Azure;
 using Azure.AI.FormRecognizer.DocumentAnalysis;
 using Azure.AI.OpenAI;
 using Azure.Search.Documents;
@@ -194,7 +196,27 @@ public sealed partial class AzureSearchEmbedService : AzureFormRecognizerDocumen
             });
         }
 
-        await _searchIndexClient.CreateIndexAsync(index);
+        try
+        {
+            await _searchIndexClient.CreateIndexAsync(index);
+        }
+        catch (RequestFailedException failedException)
+        {
+            // This can happen on an initial creation of the index, were multiple blobs are trying to create the same index at the same time
+            if (failedException.Status == (int)HttpStatusCode.Conflict)
+            {
+                _logger?.LogWarning("""'{MethodName}' failed with the response code '{ResponseCode}' and message: '{ResponseMessage}'. Exception: {Exception}""",
+                    nameof(_searchIndexClient.CreateIndexAsync), failedException.Status, failedException.Message, failedException.ToString());
+            }
+            else
+            {
+                throw;
+            }
+        }
+        catch
+        {
+            throw;
+        }
     }
 
     public async Task EnsureSearchIndexAsync(string searchIndexName, CancellationToken ct = default)
