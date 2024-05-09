@@ -1,4 +1,5 @@
 ﻿using System.Text;
+using System.Text.Json.Nodes;
 using System.Text.RegularExpressions;
 using Azure.AI.FormRecognizer.DocumentAnalysis;
 using Azure.AI.OpenAI;
@@ -9,6 +10,7 @@ using Azure.Search.Documents.Models;
 using Azure.Storage.Blobs;
 using Azure.Storage.Blobs.Models;
 using Microsoft.Extensions.Logging;
+using Newtonsoft.Json;
 using Shared.Domain;
 using Shared.Enum;
 using Shared.Models;
@@ -423,9 +425,32 @@ public sealed partial class AzureSearchEmbedService : AzureFormRecognizerDocumen
 
     private async Task IndexDocumentsToAzureSearchAsync(IndexDocumentsBatch<VectorizeSearchEntity> batch)
     {
-        IndexDocumentsResult result = await _searchClient.IndexDocumentsAsync(batch);
+        var parsedBatch = ParseVectorizeSearchEntityBatchToSearchDocumentBatch(batch);
+        IndexDocumentsResult result = await _searchClient.IndexDocumentsAsync(parsedBatch);
 
         int succeeded = result.Results.Count(r => r.Succeeded);
         _logger?.LogInformation("""Indexed {BatchCount} sections, {SucceededCount} succeeded""", batch.Actions.Count, succeeded);
+    }
+
+    private IndexDocumentsBatch<SearchDocument> ParseVectorizeSearchEntityBatchToSearchDocumentBatch(IndexDocumentsBatch<VectorizeSearchEntity> batch)
+    {
+        var parsedBatch = new IndexDocumentsBatch<SearchDocument>();
+
+        for (var x = 0; x < batch.Actions.Count; x++)
+        {
+            var document = batch.Actions[x];
+            var json = JsonConvert.SerializeObject(document);
+            var jsonObject = JsonNode.Parse(json)?.AsObject();
+
+            IndexActionType actionType = (IndexActionType)((int)jsonObject[nameof(document.ActionType)]);
+
+            var documentProperties = JsonConvert.DeserializeObject<Dictionary<string, object>>(jsonObject[nameof(document.Document)].ToJsonString());
+            var newDocument = new SearchDocument(documentProperties);
+
+            var newAction = new IndexDocumentsAction<SearchDocument>(actionType, newDocument);
+            parsedBatch.Actions.Add(newAction);
+        }
+
+        return parsedBatch;
     }
 }

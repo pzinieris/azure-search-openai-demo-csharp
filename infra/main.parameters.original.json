@@ -38,9 +38,6 @@
     "openAiSkuName": {
       "value": "S0"
     },
-	"openAiIdentityName": {
-	  "value": "${OPENAI_IDENTITY_NAME}"
-	},
     "userOrServicePrincipalId": {
       "value": "${AZURE_PRINCIPAL_ID}"
     },
@@ -70,6 +67,9 @@
     },
 	"storageSku": {
 	  "value": "${AZURE_STORAGE_SKU=Standard_ZRS}"
+	},	
+	"functionServiceName": {
+	  "value": "${FUNCTION_NAME}"
 	},
     "webAppExists": {
       "value": "${SERVICE_WEB_RESOURCE_EXISTS=false}"

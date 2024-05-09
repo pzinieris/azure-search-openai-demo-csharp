@@ -24,14 +24,16 @@ param networkAcls object = {
 }
 @allowed([ 'Enabled', 'Disabled' ])
 param publicNetworkAccess string = 'Enabled'
-param sku object = { name: 'Standard_LRS' }
+param skuName string = 'Standard_LRS'
 
 resource storage 'Microsoft.Storage/storageAccounts@2022-05-01' = {
   name: name
   location: location
   tags: tags
   kind: kind
-  sku: sku
+  sku: {
+    name: skuName
+  }
   properties: {
     accessTier: accessTier
     allowBlobPublicAccess: allowBlobPublicAccess

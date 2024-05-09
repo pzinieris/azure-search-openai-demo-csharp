@@ -6,7 +6,13 @@ param tags object = {}
 // Reference Properties
 param applicationInsightsName string = ''
 param appServicePlanId string
+
+@description('The name of the Key Vault')
 param keyVaultName string = ''
+
+@description('The name of the Key Vault resource group')
+param keyVaultResourceGroupName string = resourceGroup().name
+
 param managedIdentity bool = !empty(keyVaultName)
 param storageAccountName string
 
@@ -79,6 +85,20 @@ module functions 'appservice.bicep' = {
 
 resource storage 'Microsoft.Storage/storageAccounts@2021-09-01' existing = {
   name: storageAccountName
+}
+
+resource keyVault 'Microsoft.KeyVault/vaults@2022-07-01' existing = {
+  name: keyVaultName
+  scope: resourceGroup(keyVaultResourceGroupName)
+}
+
+module webKeyVaultAccess '../security/keyvault-access.bicep' = {
+  name: 'function-keyvault-access'
+  scope: resourceGroup(keyVaultResourceGroupName)
+  params: {
+    principalId: functions.outputs.identityPrincipalId
+    keyVaultName: keyVault.name
+  }
 }
 
 output identityPrincipalId string = managedIdentity ? functions.outputs.identityPrincipalId : ''

@@ -3,7 +3,7 @@ param location string = resourceGroup().location
 param tags object = {}
 
 @description('The name of the identity')
-param identityName string
+param identityName string = ''
 
 @description('The name of the Application Insights')
 param applicationInsightsName string

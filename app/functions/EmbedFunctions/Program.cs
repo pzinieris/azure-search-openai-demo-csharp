@@ -1,4 +1,5 @@
 ﻿using Azure.AI.OpenAI;
+using Azure.Core;
 using Azure.Extensions.AspNetCore.Configuration.Secrets;
 using Microsoft.Extensions.Configuration;
 using Shared.Enum;
@@ -21,7 +22,7 @@ var host = new HostBuilder()
             new Uri(azureKeyVaultEndpoint), new DefaultAzureCredential(), new AzureKeyVaultConfigurationOptions
             {
                 Manager = new KeyVaultSecretManager(),
-                // Reload the KeyVauld secrets once every day
+                // Reload the KeyVault secrets once every day
                 ReloadInterval = TimeSpan.FromDays(1)
             });
 
@@ -36,7 +37,15 @@ var host = new HostBuilder()
                 ? uri
                 : throw new ArgumentException($"Unable to parse URI from value: {(value != null ? value : "null")}");
 
-        var credential = new DefaultAzureCredential();
+#if DEBUG
+        bool isLocal = true;
+#else
+        bool isLocal = true;
+#endif
+        //bool isLocal = Environment.GetEnvironmentVariable("AZURE_FUNCTIONS_ENVIRONMENT") == "Development";
+        TokenCredential credential = isLocal
+            ? new AzureCliCredential()
+            : new DefaultAzureCredential();
 
         #region AppSettings
 
@@ -48,9 +57,17 @@ var host = new HostBuilder()
             });
 
         var appSettings = context.Configuration.Get<AppSettings>();
-        services.AddSingleton(appSettings);
+        services.AddSingleton<AppSettings>(appSettings);
 
         #endregion AppSettings
+
+        #region Logs
+
+        //// https://learn.microsoft.com/en-us/azure/azure-functions/dotnet-isolated-process-guide?tabs=windows#application-insights
+        //services.AddApplicationInsightsTelemetryWorkerService();
+        //services.ConfigureFunctionsApplicationInsights();
+
+        #endregion Logs
 
         services.AddHttpClient();
 
@@ -161,6 +178,17 @@ var host = new HostBuilder()
         });
     })
     .ConfigureFunctionsWorkerDefaults()
+    //.ConfigureLogging(logging =>
+    //{
+    //    logging.Services.Configure<LoggerFilterOptions>(options =>
+    //    {
+    //        LoggerFilterRule defaultRule = options.Rules.FirstOrDefault(rule => rule.ProviderName == "Microsoft.Extensions.Logging.ApplicationInsights.ApplicationInsightsLoggerProvider");
+    //        if (defaultRule is not null)
+    //        {
+    //            options.Rules.Remove(defaultRule);
+    //        }
+    //    });
+    //})
     .Build();
 
 host.Run();

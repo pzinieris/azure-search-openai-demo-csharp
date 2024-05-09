@@ -92,9 +92,6 @@ param openAiServiceName string = ''
 @description('SKU name for the OpenAI service. Default: S0')
 param openAiSkuName string = 'S0'
 
-@description('Name of the OpenAI service')
-param openAiIdentityName string = ''
-
 @description('ID of the User or ServicePrincipal who will be given the same rights as the web app')
 param userOrServicePrincipalId string = ''
 
@@ -250,10 +247,6 @@ module keyVaultSecrets 'core/security/keyvault-secrets.bicep' = {
       {
         name: 'UseVision'
         value: useVision ? 'true' : 'false'
-      }
-	  {
-        name: 'AzureOpenAiIdentityName'
-        value: openAi.outputs.SERVICE_COGNITIVE_IDENTITY_NAME
       }	  
     ],
     useAOAI ? [
@@ -367,17 +360,11 @@ module function './app/function.bicep' = {
     tags: updatedTags
     applicationInsightsName: monitoring.outputs.applicationInsightsName
     appServicePlanId: appServicePlan.outputs.id
-    keyVaultName: keyVault.outputs.name
+	keyVaultName: keyVault.outputs.name
+    keyVaultResourceGroupName: keyVaultResourceGroup.name
     storageAccountName: storage.outputs.name
     allowedOrigins: [ web.outputs.SERVICE_WEB_URI ]
-    appSettings: {
-      AZURE_FORMRECOGNIZER_SERVICE_ENDPOINT: formRecognizer.outputs.endpoint
-      AZURE_SEARCH_SERVICE_ENDPOINT: searchService.outputs.endpoint
-      AZURE_SEARCH_INDEX: searchIndexName
-      AZURE_STORAGE_BLOB_ENDPOINT: storage.outputs.primaryEndpoints.blob
-      AZURE_OPENAI_EMBEDDING_DEPLOYMENT: azureEmbeddingDeploymentName
-      AZURE_OPENAI_ENDPOINT: openAi.outputs.endpoint      
-    }
+    appSettings: {}
   }
 }
 
@@ -402,11 +389,9 @@ module openAi 'core/ai/cognitiveservices.bicep' = if (useAOAI) {
   params: {
     name: !empty(openAiServiceName) ? openAiServiceName : '${abbrs.cognitiveServicesAccounts}${resourceToken}'
     location: openAiResourceGroupLocation
-	identityName: !empty(openAiIdentityName) ? openAiIdentityName : '${abbrs.managedIdentityUserAssignedIdentities}web-${resourceToken}'
+	useManagedIdentity: true
     tags: updatedTags
-    sku: {
-      name: openAiSkuName
-    }
+    skuName: openAiSkuName
     deployments: [
       {
         name: azureChatGptDeploymentName
@@ -443,11 +428,9 @@ module formRecognizer 'core/ai/cognitiveservices.bicep' = {
     name: !empty(formRecognizerServiceName) ? formRecognizerServiceName : '${abbrs.cognitiveServicesFormRecognizer}${resourceToken}'
     kind: 'FormRecognizer'
     location: formRecognizerResourceGroupLocation
-	identityName: ''
+	useManagedIdentity: false
     tags: updatedTags
-    sku: {
-      name: formRecognizerSkuName
-    }
+    skuName: formRecognizerSkuName
   }
 }
 
@@ -478,9 +461,7 @@ module storage 'core/storage/storage-account.bicep' = {
     location: storageResourceGroupLocation
     tags: updatedTags
     publicNetworkAccess: 'Enabled'
-    sku: {
-      name: storageSku
-    }
+    skuName: storageSku
     deleteRetentionPolicy: {
       enabled: true
       days: 2
@@ -678,7 +659,6 @@ output AZURE_OPENAI_EMBEDDING_DEPLOYMENT string = azureEmbeddingDeploymentName
 output AZURE_OPENAI_ENDPOINT string = openAi.outputs.endpoint
 output AZURE_OPENAI_RESOURCE_GROUP string = openAiResourceGroup.name
 output AZURE_OPENAI_SERVICE string = openAi.outputs.name
-output AZURE_OPENAI_SERVICE_IDENTITY_NAME string = openAi.outputs.SERVICE_COGNITIVE_IDENTITY_NAME
 output AZURE_OPENAI_SERVICE_IDENTITY_PRINCIPAL_ID string = openAi.outputs.SERVICE_COGNITIVE_IDENTITY_PRINCIPAL_ID
 output AZURE_RESOURCE_GROUP string = resourceGroup.name
 output AZURE_SEARCH_INDEX string = searchIndexName
