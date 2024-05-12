@@ -4,6 +4,8 @@ namespace ClientApp.Services;
 
 public sealed class ApiClient(HttpClient httpClient)
 {
+    #region Public Methods
+
     public async Task<ImageResponse?> RequestImageAsync(PromptRequest request)
     {
         var response = await httpClient.PostAsJsonAsync(
@@ -51,8 +53,7 @@ public sealed class ApiClient(HttpClient httpClient)
 
             response.EnsureSuccessStatusCode();
 
-            var result =
-                await response.Content.ReadFromJsonAsync<UploadDocumentsResponse>();
+            var result = await response.Content.ReadFromJsonAsync<UploadDocumentsResponse>();
 
             return result
                 ?? UploadDocumentsResponse.FromError(
@@ -89,6 +90,17 @@ public sealed class ApiClient(HttpClient httpClient)
     }
 
     public Task<AnswerResult<ChatRequest>> ChatConversationAsync(ChatRequest request) => PostRequestAsync(request, "api/chat");
+
+    public async Task<string?> GetCitationBaseUrlAsync()
+    {
+        var response = await httpClient.GetAsync("api/citationBaseUrl");
+
+        response.EnsureSuccessStatusCode();
+
+        return await response.Content.ReadFromJsonAsync<string>();
+    }
+
+    #endregion Public Methods
 
     private async Task<AnswerResult<TRequest>> PostRequestAsync<TRequest>(
         TRequest request, string apiRoute) where TRequest : ApproachRequest

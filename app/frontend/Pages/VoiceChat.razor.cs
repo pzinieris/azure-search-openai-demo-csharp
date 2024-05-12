@@ -7,6 +7,8 @@ namespace ClientApp.Pages;
 
 public sealed partial class VoiceChat : IDisposable
 {
+    #region Fields
+
     private string _userQuestion = "";
     private UserQuestion _currentQuestion;
     private bool _isRecognizingSpeech = false;
@@ -23,6 +25,10 @@ public sealed partial class VoiceChat : IDisposable
         .UseSoftlineBreakAsHardlineBreak()
         .Build();
 
+    #endregion Fields
+
+    #region Properties
+
     [Inject] public required OpenAIPromptQueue OpenAIPrompts { get; set; }
     [Inject] public required IDialogService Dialog { get; set; }
     [Inject] public required ISpeechRecognitionService SpeechRecognition { get; set; }
@@ -34,11 +40,37 @@ public sealed partial class VoiceChat : IDisposable
     [CascadingParameter(Name = nameof(IsReversed))]
     public required bool IsReversed { get; set; }
 
+    #endregion Properties
+
+    #region Public Methods
+
+    #region Protected Methods
+
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
         if (firstRender)
         {
             await SpeechRecognition.InitializeModuleAsync();
+        }
+    }
+
+    protected override void OnAfterRender(bool firstRender) => JavaScript.InvokeVoid("highlight");
+
+    #endregion Protected Methods
+
+    public void Dispose() => _recognitionSubscription?.Dispose();
+
+    #endregion Public Methods
+
+    #region Private Methods
+
+    #region UI events
+
+    private void OnKeyUp(KeyboardEventArgs args)
+    {
+        if (args is { Key: "Enter", ShiftKey: false })
+        {
+            OnSendPrompt();
         }
     }
 
@@ -114,16 +146,6 @@ public sealed partial class VoiceChat : IDisposable
             }));
     }
 
-    private void OnKeyUp(KeyboardEventArgs args)
-    {
-        if (args is { Key: "Enter", ShiftKey: false })
-        {
-            OnSendPrompt();
-        }
-    }
-
-    protected override void OnAfterRender(bool firstRender) => JavaScript.InvokeVoid("highlight");
-
     private void StopTalking()
     {
         SpeechSynthesis.Cancel();
@@ -172,6 +194,8 @@ public sealed partial class VoiceChat : IDisposable
         StateHasChanged();
     }
 
+    #endregion UI events
+
     private void OnError(SpeechRecognitionErrorEvent errorEvent)
     {
         Logger.LogWarning(
@@ -191,5 +215,5 @@ public sealed partial class VoiceChat : IDisposable
         StateHasChanged();
     }
 
-    public void Dispose() => _recognitionSubscription?.Dispose();
+    #endregion Private Methods
 }

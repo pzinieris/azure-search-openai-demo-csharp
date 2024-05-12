@@ -1,5 +1,7 @@
-﻿using Azure.Core;
+﻿using System.Text;
+using Azure.Core;
 using Microsoft.SemanticKernel.Connectors.OpenAI;
+using MinimalApi.Models;
 using Shared.Domain;
 using Shared.Models.Settings;
 using Shared.Services.Interfaces;
@@ -268,10 +270,252 @@ public class ReadRetrieveReadChatService
         RequestOverrides? overrides,
         CancellationToken cancellationToken = default)
     {
-        if (string.IsNullOrWhiteSpace(history.LastOrDefault()?.User))
+        var replyOnYourDataParams = ValidateAndGetChatCompletionsOptionsAndParams(history, overrides);
+
+        // get answer
+        //var answer = await _openAIClient.GetChatCompletionsStreamingAsync(chatCompletionsOptions);        
+        var answer = await _openAIClient.GetChatCompletionsAsync(replyOnYourDataParams.ChatCompletionsOptions, cancellationToken: cancellationToken);
+
+        var aiAnswer = answer.Value ?? throw new InvalidOperationException("Failed to get search query");
+        _logger.LogInformation("""Answer retrieved from 'GetChatCompletionsAsync': '{Answer}'""", aiAnswer);
+
+        var aiMessage = aiAnswer.Choices[0]?.Message;
+        var ans = aiMessage?.Content ?? throw new InvalidOperationException("Failed to get answer");
+        var thoughts = "";
+
+        // step 4
+        // add follow up questions if requested
+        if (overrides?.SuggestFollowupQuestions is true)
         {
-            throw new InvalidOperationException("Use question is null");
+            var messages = new List<ChatRequestMessage>()
+            {
+                new ChatRequestSystemMessage(@"You are a helpful AI assistant"),
+                new ChatRequestUserMessage($@"Generate three follow-up question based on the answer you just generated.
+                    # Answer
+                    {ans}
+
+                    # Format of the response
+                    Return the follow-up question as a json string list. Don't put your answer between ```json and ```, return the json string directly.
+                    e.g.
+                    [
+                        ""What is the deductible?"",
+                        ""What is the co-pay?"",
+                        ""What is the out-of-pocket maximum?""
+                    ]")
+            };
+            var chatCompletionsOptions = new ChatCompletionsOptions(replyOnYourDataParams.AIDeploymentName, messages);
+
+            var followUpQuestionsAnswer = await _openAIClient.GetChatCompletionsAsync(chatCompletionsOptions, cancellationToken: cancellationToken);
+
+            var followUpQuestionsAIAnswer = followUpQuestionsAnswer.Value ?? throw new InvalidOperationException("Failed to get followUp questions");
+            _logger.LogInformation("""Answer retrieved from 'GetChatCompletionsAsync': '{Answer}'""", followUpQuestionsAIAnswer);
+
+            var followUpQuestionsAIMessage = followUpQuestionsAIAnswer.Choices[0]?.Message;
+            var followUpQuestions = followUpQuestionsAIMessage?.Content ?? throw new InvalidOperationException("Failed to get answer");
+
+            var followUpQuestionsObject = JsonSerializer.Deserialize<JsonElement>(followUpQuestions);
+            var followUpQuestionsList = followUpQuestionsObject.EnumerateArray().Select(x => x.GetString()).ToList();
+
+            foreach (var followUpQuestion in followUpQuestionsList)
+            {
+                ans += $" <<{followUpQuestion}>> ";
+            }
         }
+
+        var documentContentList = new SupportingContentRecord[aiMessage.AzureExtensionsContext.Citations.Count];
+        for (var x = 0; x < aiMessage.AzureExtensionsContext.Citations.Count; x++)
+        {
+            var citation = aiMessage.AzureExtensionsContext.Citations.ElementAt(x);
+
+            documentContentList[x] = new SupportingContentRecord(citation.Filepath, citation.Content);
+
+            // Format the response by adding the desired document reference
+            ans = ans.Replace($"[doc{x + 1}]", $"[{citation.Filepath}]");
+        }
+
+        return new ApproachResponse(ans, thoughts, documentContentList, null, _appSettings.ToCitationBaseUrl());
+    }
+
+    /// <summary>
+    /// This is the method were the Azure OpenAI is handling the document retrieval and usage into the user prompt
+    /// </summary>
+    /// <param name="history"></param>
+    /// <param name="overrides"></param>
+    /// <param name="cancellationToken"></param>
+    /// <returns></returns>
+    public async IAsyncEnumerable<ChatChunkResponse> ReplyOnYourDataStreamingAsync(
+        ChatTurn[] history,
+        RequestOverrides? overrides,
+        [EnumeratorCancellation] CancellationToken cancellationToken = default)
+    {
+        var replyOnYourDataParams = ValidateAndGetChatCompletionsOptionsAndParams(history, overrides);
+
+        // Get AI answer from prompt
+        var aiAnswer = await _openAIClient.GetChatCompletionsStreamingAsync(replyOnYourDataParams.ChatCompletionsOptions, cancellationToken: cancellationToken);
+
+        string temporaryAnswerWithDocument = "";
+        IEnumerable<AzureChatExtensionDataSourceResponseCitation>? citations = null;
+
+        var answer = new StringBuilder();
+        await foreach (var choice in aiAnswer.WithCancellation(cancellationToken))
+        {
+            if (choice.ContentUpdate is { Length: > 0 })
+            {
+                // Construct the hole answer, piece by piece, to be used for the followUp questions
+                answer.Append(choice.ContentUpdate);
+
+                // If true, we store it temporally before returning it as answer, to replace it with the appropriate citation
+                // Else, if the temporaryAnswerWithDocument already has a value, then we already identified the start of the reference document, in previews choice/chunk
+                if (choice.ContentUpdate.Contains('[')
+                    || temporaryAnswerWithDocument != "")
+                {
+                    // Add it into the StringBuilder and continue
+                    temporaryAnswerWithDocument += choice.ContentUpdate;
+
+                    // This should never happen, since we are receiving the citations from the first ever choice/chunk
+                    // We continue the iteration, until we receive the citations
+                    if (citations == null)
+                    {
+                        continue;
+                    }
+
+                    // We need to make sure that we have all the complete document references part included into the current string
+                    // eg. [doc1][doc2]
+                    // An incomplete references part might be [doc1][doc
+                    var docReferenceOpeningsCount = temporaryAnswerWithDocument.Count(c => c == '[');
+                    var docReferenceClosingCount = temporaryAnswerWithDocument.Count(c => c == ']');
+
+                    // If true, then we can go ahead and replace with the citations reference
+                    if (docReferenceOpeningsCount == docReferenceClosingCount)
+                    {
+                        for (int index = temporaryAnswerWithDocument.IndexOf("[doc"); index > -1; index = temporaryAnswerWithDocument.IndexOf("[doc", index + 1))
+                        {
+                            // Extract the hole document reference from the string
+                            var documentReference = temporaryAnswerWithDocument.Substring(index, temporaryAnswerWithDocument.IndexOf("]", index) + 1 - index);
+                            // Get citation index number
+                            var documentReferenceNumber = Convert.ToInt32(documentReference.Replace("[doc", "").Replace("]", ""));
+                            // Replace all occurrences into the string with the citation
+                            temporaryAnswerWithDocument = temporaryAnswerWithDocument.Replace($"[doc{documentReferenceNumber}]", $"[{citations.ElementAt(documentReferenceNumber).Filepath}]");
+                        }
+
+                        // We finally returning the chunk back too the response
+                        yield return new ChatChunkResponse(temporaryAnswerWithDocument.Length, temporaryAnswerWithDocument);
+                        // We are making sure tho empty the string before exiting
+                        temporaryAnswerWithDocument = "";
+                    }
+
+                    continue;
+                }
+
+                yield return new ChatChunkResponse(choice.ContentUpdate.Length, choice.ContentUpdate);
+            }
+
+            if ((citations == null || !citations.Any()) && (choice.AzureExtensionsContext?.Citations?.Any() ?? false))
+            {
+                citations = choice.AzureExtensionsContext.Citations;
+            }
+        }
+
+        if (temporaryAnswerWithDocument != "")
+        {
+            yield return new ChatChunkResponse(temporaryAnswerWithDocument.Length, temporaryAnswerWithDocument);
+        }
+
+        // Get follow up questions, if requested
+        if (overrides?.SuggestFollowupQuestions is true)
+        {
+            var messages = new List<ChatRequestMessage>()
+            {
+                new ChatRequestSystemMessage(@"You are a helpful AI assistant"),
+                new ChatRequestUserMessage($@"Generate three follow-up question based on the answer you just generated.
+                    # Answer
+                    {answer.ToString()}
+
+                    # Format of the response
+                    Return each follow-up question between << and >>
+                    e.g.
+                    &nbsp;<<follow-up question 1>>&nbsp;&nbsp;<<follow-up question 2>>&nbsp;&nbsp;<<follow-up question 3>>&nbsp;")
+            };
+            var chatCompletionsOptions = new ChatCompletionsOptions(replyOnYourDataParams.AIDeploymentName, messages);
+
+            var followUpQuestionsAnswer = await _openAIClient.GetChatCompletionsStreamingAsync(chatCompletionsOptions, cancellationToken: cancellationToken);
+
+            await foreach (var choice in followUpQuestionsAnswer.WithCancellation(cancellationToken))
+            {
+                if (choice.ContentUpdate is { Length: > 0 })
+                {
+                    yield return new ChatChunkResponse(choice.ContentUpdate.Length, choice.ContentUpdate);
+                }
+            }
+        }
+    }
+
+    #endregion Public Methods
+
+    #region Private Methods
+
+    private Kernel GetSemanticKernel(OpenAIClient client)
+    {
+        var kernelBuilder = Kernel.CreateBuilder();
+
+        if (!_appSettings.UseAOAI)
+        {
+            var deployedModelName = _appSettings.OpenAiChatGptDeployment;
+            ArgumentNullException.ThrowIfNullOrWhiteSpace(deployedModelName);
+            kernelBuilder = kernelBuilder.AddOpenAIChatCompletion(deployedModelName, client);
+
+            var embeddingModelName = _appSettings.OpenAiEmbeddingDeployment;
+            ArgumentNullException.ThrowIfNullOrWhiteSpace(embeddingModelName);
+#pragma warning disable SKEXP0010 // Type is for evaluation purposes only and is subject to change or removal in future updates. Suppress this diagnostic to proceed.
+            kernelBuilder = kernelBuilder.AddOpenAITextEmbeddingGeneration(embeddingModelName, client);
+#pragma warning restore SKEXP0010 // Type is for evaluation purposes only and is subject to change or removal in future updates. Suppress this diagnostic to proceed.
+        }
+        else
+        {
+            var deployedModelName = _appSettings.AzureOpenAiChatGptDeployment;
+            ArgumentNullException.ThrowIfNullOrWhiteSpace(deployedModelName);
+            kernelBuilder = kernelBuilder.AddAzureOpenAIChatCompletion(deployedModelName, client);
+
+            var embeddingModelName = _appSettings.AzureOpenAiEmbeddingDeployment;
+            if (!string.IsNullOrEmpty(embeddingModelName))
+            {
+#pragma warning disable SKEXP0010 // Type is for evaluation purposes only and is subject to change or removal in future updates. Suppress this diagnostic to proceed.
+                kernelBuilder = kernelBuilder.AddAzureOpenAITextEmbeddingGeneration(embeddingModelName, client);
+#pragma warning restore SKEXP0010 // Type is for evaluation purposes only and is subject to change or removal in future updates. Suppress this diagnostic to proceed.
+            }
+        }
+
+        // using Microsoft.SemanticKernel.CoreSkills;
+        //kernelBuilder.Plugins.AddFromType<TimePlugin>();
+        //kernelBuilder.Plugins.AddFromPromptDirectory("dir_name");
+
+        return kernelBuilder.Build();
+    }
+
+    private JsonElement GetJsonElement(string aiMessage)
+    {
+        JsonElement answerObject;
+        try
+        {
+            answerObject = JsonSerializer.Deserialize<JsonElement>(aiMessage);
+        }
+        catch
+        {
+            var json = @$"
+                {{
+                    ""answer"": ""{aiMessage}"",
+                    ""thoughts"": ""No thoughts provided""
+                }}";
+
+            answerObject = JsonSerializer.Deserialize<JsonElement>(json);
+        }
+
+        return answerObject;
+    }
+
+    private ReplyOnYourDataParamsDTO ValidateAndGetChatCompletionsOptionsAndParams(ChatTurn[] history, RequestOverrides? overrides)
+    {
+        ArgumentNullException.ThrowIfNullOrWhiteSpace(history.LastOrDefault()?.User);
 
         var aiDeploymentName = _appSettings.AzureOpenAiChatGptDeployment;
         ArgumentNullException.ThrowIfNullOrEmpty(aiDeploymentName);
@@ -363,302 +607,7 @@ public class ReadRetrieveReadChatService
             }
         };
 
-        // get answer
-        //var answer = await _openAIClient.GetChatCompletionsStreamingAsync(chatCompletionsOptions);        
-        var answer = await _openAIClient.GetChatCompletionsAsync(chatCompletionsOptions, cancellationToken: cancellationToken);
-
-        var aiAnswer = answer.Value ?? throw new InvalidOperationException("Failed to get search query");
-        _logger.LogInformation("""Answer retrieved from 'GetChatCompletionsAsync': '{Answer}'""", aiAnswer);
-
-        var aiMessage = aiAnswer.Choices[0]?.Message;
-        var ans = aiMessage?.Content ?? throw new InvalidOperationException("Failed to get answer");
-        var thoughts = "";
-
-        // step 4
-        // add follow up questions if requested
-        if (overrides?.SuggestFollowupQuestions is true)
-        {
-            messages = new List<ChatRequestMessage>()
-            {
-                new ChatRequestSystemMessage(@"You are a helpful AI assistant"),
-                new ChatRequestUserMessage($@"Generate three follow-up question based on the answer you just generated.
-                    # Answer
-                    {ans}
-
-                    # Format of the response
-                    Return the follow-up question as a json string list. Don't put your answer between ```json and ```, return the json string directly.
-                    e.g.
-                    [
-                        ""What is the deductible?"",
-                        ""What is the co-pay?"",
-                        ""What is the out-of-pocket maximum?""
-                    ]")
-            };
-            chatCompletionsOptions = new ChatCompletionsOptions(aiDeploymentName, messages);
-
-            var followUpQuestionsAnswer = await _openAIClient.GetChatCompletionsAsync(chatCompletionsOptions, cancellationToken: cancellationToken);
-
-            var followUpQuestionsAIAnswer = followUpQuestionsAnswer.Value ?? throw new InvalidOperationException("Failed to get followUp questions");
-            _logger.LogInformation("""Answer retrieved from 'GetChatCompletionsAsync': '{Answer}'""", followUpQuestionsAIAnswer);
-
-            var followUpQuestionsAIMessage = followUpQuestionsAIAnswer.Choices[0]?.Message;
-            var followUpQuestions = followUpQuestionsAIMessage?.Content ?? throw new InvalidOperationException("Failed to get answer");
-
-            var followUpQuestionsObject = JsonSerializer.Deserialize<JsonElement>(followUpQuestions);
-            var followUpQuestionsList = followUpQuestionsObject.EnumerateArray().Select(x => x.GetString()).ToList();
-
-            foreach (var followUpQuestion in followUpQuestionsList)
-            {
-                ans += $" <<{followUpQuestion}>> ";
-            }
-        }
-
-        var documentContentList = new SupportingContentRecord[aiMessage.AzureExtensionsContext.Citations.Count];
-        for (var x = 0; x < aiMessage.AzureExtensionsContext.Citations.Count; x++)
-        {
-            var citation = aiMessage.AzureExtensionsContext.Citations.ElementAt(x);
-
-            documentContentList[x] = new SupportingContentRecord(citation.Filepath, citation.Content);
-
-            // Format the response by adding the desired document reference
-            ans = ans.Replace($"[doc{x + 1}]", $"[{citation.Filepath}]");
-        }
-
-        return new ApproachResponse(ans, thoughts, documentContentList, null, _appSettings.ToCitationBaseUrl());
-    }
-
-    ///// <summary>
-    ///// This is the method were the Azure OpenAI is handling the document retrieval and usage into the user prompt
-    ///// </summary>
-    ///// <param name="history"></param>
-    ///// <param name="overrides"></param>
-    ///// <param name="cancellationToken"></param>
-    ///// <returns></returns>
-    //public async IAsyncEnumerable<ChatChunkResponse> ReplyOnYourDataStreamingAsync(
-    //    ChatTurn[] history,
-    //    RequestOverrides? overrides,
-    //    CancellationToken cancellationToken = default)
-    //{
-    //    if (string.IsNullOrWhiteSpace(history.LastOrDefault()?.User))
-    //    {
-    //        throw new InvalidOperationException("Use question is null");
-    //    }
-
-    //    var aiDeploymentName = _appSettings.AzureOpenAiChatGptDeployment;
-    //    ArgumentNullException.ThrowIfNullOrEmpty(aiDeploymentName);
-
-    //    var aiEmbeddingDeploymentName = _appSettings.AzureOpenAiEmbeddingDeployment;
-    //    ArgumentNullException.ThrowIfNullOrEmpty(aiEmbeddingDeploymentName);
-
-    //    var azureSearchServiceEndpoint = _appSettings.AzureSearchServiceEndpoint;
-    //    ArgumentNullException.ThrowIfNullOrEmpty(azureSearchServiceEndpoint);
-
-    //    var azureSearchIndex = _appSettings.AzureSearchIndex;
-    //    ArgumentNullException.ThrowIfNullOrEmpty(azureSearchIndex);
-
-    //    var useSemanticRanker = overrides?.SemanticRanker ?? false;
-    //    AzureSearchQueryType queryType;
-    //    if (overrides?.RetrievalMode == RetrievalMode.Hybrid)
-    //    {
-    //        if (useSemanticRanker)
-    //        {
-    //            queryType = AzureSearchQueryType.VectorSemanticHybrid;
-    //        }
-    //        else
-    //        {
-    //            queryType = AzureSearchQueryType.VectorSimpleHybrid;
-    //        }
-    //    }
-    //    else if (useSemanticRanker)
-    //    {
-    //        queryType = AzureSearchQueryType.Semantic;
-    //    }
-    //    else if (overrides?.RetrievalMode == RetrievalMode.Vector)
-    //    {
-    //        queryType = AzureSearchQueryType.Vector;
-    //    }
-    //    else
-    //    {
-    //        queryType = AzureSearchQueryType.Simple;
-    //    }
-
-    //    // step 1
-    //    // put together the conversation history to generate answer
-    //    var messages = new List<ChatRequestMessage>()
-    //    {
-    //        new ChatRequestSystemMessage(@"You are a system assistant who helps the company employees with their questions.
-    //            Code snippets must be generated to C# programming language, unless specified otherwise by the user.
-    //            You will always reply with a Markdown formatted response.")
-    //    };
-
-    //    // add chat history
-    //    foreach (var turn in history)
-    //    {
-    //        messages.Add(new ChatRequestUserMessage(turn.User));
-    //        if (turn.Bot is { } botMessage)
-    //        {
-    //            messages.Add(new ChatRequestAssistantMessage(botMessage));
-    //        }
-    //    }
-
-    //    var chatCompletionsOptions = new ChatCompletionsOptions(aiDeploymentName, messages)
-    //    {
-    //        AzureExtensionsOptions = new AzureChatExtensionsOptions()
-    //        {
-    //            Extensions =
-    //            {
-    //                new AzureSearchChatExtensionConfiguration()
-    //                {
-    //                    SearchEndpoint = new Uri(azureSearchServiceEndpoint),
-    //                    Authentication = new OnYourDataSystemAssignedManagedIdentityAuthenticationOptions(),
-    //                    IndexName = azureSearchIndex,
-    //                    DocumentCount = overrides?.Top ?? 5,
-    //                    QueryType = queryType,
-    //                    SemanticConfiguration = "default",
-    //                    VectorizationSource = new OnYourDataDeploymentNameVectorizationSource(aiEmbeddingDeploymentName),
-    //                    FieldMappingOptions = new AzureSearchIndexFieldMappingOptions()
-    //                    {
-    //                        TitleFieldName = VectorizeSearchEntity.IdAsJsonPropertyName(),
-    //                        FilepathFieldName = VectorizeSearchEntity.SourceFileAsJsonPropertyName(),
-    //                        ContentFieldNames =
-    //                        {
-    //                            VectorizeSearchEntity.ContentAsJsonPropertyName()
-    //                        },
-    //                        VectorFieldNames =
-    //                        {
-    //                            VectorizeSearchEntity.EmbeddingAsJsonPropertyName()
-    //                        }
-    //                    }
-    //                }
-    //            }
-    //        }
-    //    };
-
-    //    // get answer
-    //    //var answer = await _openAIClient.GetChatCompletionsStreamingAsync(chatCompletionsOptions);        
-    //    var answer = await _openAIClient.GetChatCompletionsAsync(chatCompletionsOptions, cancellationToken: cancellationToken);
-
-    //    var aiAnswer = answer.Value ?? throw new InvalidOperationException("Failed to get search query");
-    //    _logger.LogInformation("""Answer retrieved from 'GetChatCompletionsAsync': '{Answer}'""", aiAnswer);
-
-    //    var aiMessage = aiAnswer.Choices[0]?.Message;
-    //    var ans = aiMessage?.Content ?? throw new InvalidOperationException("Failed to get answer");
-    //    var thoughts = "";
-
-    //    // step 4
-    //    // add follow up questions if requested
-    //    if (overrides?.SuggestFollowupQuestions is true)
-    //    {
-    //        messages = new List<ChatRequestMessage>()
-    //        {
-    //            new ChatRequestSystemMessage(@"You are a helpful AI assistant"),
-    //            new ChatRequestUserMessage($@"Generate three follow-up question based on the answer you just generated.
-    //                # Answer
-    //                {ans}
-
-    //                # Format of the response
-    //                Return the follow-up question as a json string list. Don't put your answer between ```json and ```, return the json string directly.
-    //                e.g.
-    //                [
-    //                    ""What is the deductible?"",
-    //                    ""What is the co-pay?"",
-    //                    ""What is the out-of-pocket maximum?""
-    //                ]")
-    //        };
-    //        chatCompletionsOptions = new ChatCompletionsOptions(aiDeploymentName, messages);
-
-    //        var followUpQuestionsAnswer = await _openAIClient.GetChatCompletionsAsync(chatCompletionsOptions, cancellationToken: cancellationToken);
-
-    //        var followUpQuestionsAIAnswer = followUpQuestionsAnswer.Value ?? throw new InvalidOperationException("Failed to get followUp questions");
-    //        _logger.LogInformation("""Answer retrieved from 'GetChatCompletionsAsync': '{Answer}'""", followUpQuestionsAIAnswer);
-
-    //        var followUpQuestionsAIMessage = followUpQuestionsAIAnswer.Choices[0]?.Message;
-    //        var followUpQuestions = followUpQuestionsAIMessage?.Content ?? throw new InvalidOperationException("Failed to get answer");
-
-    //        var followUpQuestionsObject = JsonSerializer.Deserialize<JsonElement>(followUpQuestions);
-    //        var followUpQuestionsList = followUpQuestionsObject.EnumerateArray().Select(x => x.GetString()).ToList();
-
-    //        foreach (var followUpQuestion in followUpQuestionsList)
-    //        {
-    //            ans += $" <<{followUpQuestion}>> ";
-    //        }
-    //    }
-
-    //    var documentContentList = new SupportingContentRecord[aiMessage.AzureExtensionsContext.Citations.Count];
-    //    for (var x = 0; x < aiMessage.AzureExtensionsContext.Citations.Count; x++)
-    //    {
-    //        var citation = aiMessage.AzureExtensionsContext.Citations.ElementAt(x);
-
-    //        documentContentList[x] = new SupportingContentRecord(citation.Filepath, citation.Content);
-
-    //        // Format the response by adding the desired document reference
-    //        ans = ans.Replace($"[doc{x + 1}]", $"[{citation.Filepath}]");
-    //    }
-
-    //    return new ApproachResponse(ans, thoughts, documentContentList, null, _appSettings.ToCitationBaseUrl());
-    //}
-
-    #endregion Public Methods
-
-    #region Private Methods
-
-    private Kernel GetSemanticKernel(OpenAIClient client)
-    {
-        var kernelBuilder = Kernel.CreateBuilder();
-
-        if (!_appSettings.UseAOAI)
-        {
-            var deployedModelName = _appSettings.OpenAiChatGptDeployment;
-            ArgumentNullException.ThrowIfNullOrWhiteSpace(deployedModelName);
-            kernelBuilder = kernelBuilder.AddOpenAIChatCompletion(deployedModelName, client);
-
-            var embeddingModelName = _appSettings.OpenAiEmbeddingDeployment;
-            ArgumentNullException.ThrowIfNullOrWhiteSpace(embeddingModelName);
-#pragma warning disable SKEXP0010 // Type is for evaluation purposes only and is subject to change or removal in future updates. Suppress this diagnostic to proceed.
-            kernelBuilder = kernelBuilder.AddOpenAITextEmbeddingGeneration(embeddingModelName, client);
-#pragma warning restore SKEXP0010 // Type is for evaluation purposes only and is subject to change or removal in future updates. Suppress this diagnostic to proceed.
-        }
-        else
-        {
-            var deployedModelName = _appSettings.AzureOpenAiChatGptDeployment;
-            ArgumentNullException.ThrowIfNullOrWhiteSpace(deployedModelName);
-            kernelBuilder = kernelBuilder.AddAzureOpenAIChatCompletion(deployedModelName, client);
-
-            var embeddingModelName = _appSettings.AzureOpenAiEmbeddingDeployment;
-            if (!string.IsNullOrEmpty(embeddingModelName))
-            {
-#pragma warning disable SKEXP0010 // Type is for evaluation purposes only and is subject to change or removal in future updates. Suppress this diagnostic to proceed.
-                kernelBuilder = kernelBuilder.AddAzureOpenAITextEmbeddingGeneration(embeddingModelName, client);
-#pragma warning restore SKEXP0010 // Type is for evaluation purposes only and is subject to change or removal in future updates. Suppress this diagnostic to proceed.
-            }
-        }
-
-        // using Microsoft.SemanticKernel.CoreSkills;
-        //kernelBuilder.Plugins.AddFromType<TimePlugin>();
-        //kernelBuilder.Plugins.AddFromPromptDirectory("dir_name");
-
-        return kernelBuilder.Build();
-    }
-
-    private JsonElement GetJsonElement(string aiMessage)
-    {
-        JsonElement answerObject;
-        try
-        {
-            answerObject = JsonSerializer.Deserialize<JsonElement>(aiMessage);
-        }
-        catch
-        {
-            var json = @$"
-                {{
-                    ""answer"": ""{aiMessage}"",
-                    ""thoughts"": ""No thoughts provided""
-                }}";
-
-            answerObject = JsonSerializer.Deserialize<JsonElement>(json);
-        }
-
-        return answerObject;
+        return new ReplyOnYourDataParamsDTO(chatCompletionsOptions, aiDeploymentName, aiEmbeddingDeploymentName, azureSearchServiceEndpoint, azureSearchIndex);
     }
 
     #endregion Private Methods
