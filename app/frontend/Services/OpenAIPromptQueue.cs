@@ -4,10 +4,35 @@ public sealed class OpenAIPromptQueue(
     IServiceProvider provider,
     ILogger<OpenAIPromptQueue> logger)
 {
+    #region Fields
+
+    private const string AIEndpoint = "api/openai/chat";
+    private const string AIWithDocumentsEndpoint = "api/chat";
+
     private readonly StringBuilder _responseBuffer = new();
     private Task? _processPromptTask = null;
 
+    #endregion Fields
+
+    #region Public Methods
+
     public void Enqueue(string prompt, Func<PromptResponse, Task> handler)
+    {
+        var promptRequest = new PromptRequest { Prompt = prompt };
+
+        EnqueueAPI(prompt, promptRequest, false, handler);
+    }
+
+    public void Enqueue(ChatRequest chatRequest, Func<PromptResponse, Task> handler)
+    {
+        EnqueueAPI(chatRequest.History.Last().User, chatRequest, true, handler);
+    }
+
+    #endregion Public Methods
+
+    #region Private Methods
+
+    public void EnqueueAPI(string prompt, object bodyObject, bool useDocuments, Func<PromptResponse, Task> handler)
     {
         if (_processPromptTask is not null)
         {
@@ -19,15 +44,16 @@ public sealed class OpenAIPromptQueue(
             try
             {
                 var options = SerializerOptions.Default;
-                var json = JsonSerializer.Serialize(
-                    new PromptRequest { Prompt = prompt }, options);
+                var json = JsonSerializer.Serialize(bodyObject, options);
 
                 using var body = new StringContent(json, Encoding.UTF8, "application/json");
                 using var scope = provider.CreateScope();
 
                 var factory = scope.ServiceProvider.GetRequiredService<IHttpClientFactory>();
                 using var client = factory.CreateClient(typeof(ApiClient).Name);
-                var response = await client.PostAsync("api/openai/chat", body);
+
+                var endpoint = useDocuments ? AIWithDocumentsEndpoint : AIEndpoint;
+                var response = await client.PostAsync(endpoint, body);
 
                 if (response.IsSuccessStatusCode)
                 {
@@ -45,7 +71,7 @@ public sealed class OpenAIPromptQueue(
 
                         var responseText = NormalizeResponseText(_responseBuffer, logger);
                         await handler(
-                            new PromptResponse(
+                        new PromptResponse(
                                 prompt, responseText));
 
                         await Task.Delay(1);
@@ -63,7 +89,7 @@ public sealed class OpenAIPromptQueue(
                 {
                     var responseText = NormalizeResponseText(_responseBuffer, logger);
                     await handler(
-                        new PromptResponse(
+                    new PromptResponse(
                             prompt, responseText, true));
                     _responseBuffer.Clear();
                 }
@@ -95,4 +121,6 @@ public sealed class OpenAIPromptQueue(
 
         return text;
     }
+
+    #endregion Private Methods
 }

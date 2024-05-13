@@ -6,6 +6,8 @@ namespace MinimalApi.Extensions;
 
 internal static class WebApplicationExtensions
 {
+    #region Internal Methods
+
     internal static WebApplication MapApi(this WebApplication app)
     {
         var api = app.MapGroup("api");
@@ -15,6 +17,9 @@ internal static class WebApplicationExtensions
 
         // Long-form chat w/ contextual history endpoint
         api.MapPost("chat", OnPostChatAsync);
+
+        // Long-form chat w/ contextual history endpoint
+        api.MapGet("citationBaseUrl", OnGetCitationBaseUrl);
 
         // Upload a document
         api.MapPost("documents", OnPostDocumentAsync);
@@ -29,6 +34,12 @@ internal static class WebApplicationExtensions
 
         return app;
     }
+
+    #endregion Internal Methods
+
+    #region Private Methods
+
+    #region API methods implementation
 
     private static IResult OnGetEnableLogout(HttpContext context)
     {
@@ -73,7 +84,7 @@ internal static class WebApplicationExtensions
         }
     }
 
-    private static async Task<IResult> OnPostChatAsync(
+    private static async Task<IResult> OnPostChatOldAsync(
         ChatRequest request,
         ReadRetrieveReadChatService chatService,
         CancellationToken cancellationToken)
@@ -87,6 +98,21 @@ internal static class WebApplicationExtensions
         }
 
         return Results.BadRequest();
+    }
+
+    private static IAsyncEnumerable<ChatChunkResponse> OnPostChatAsync(
+        ChatRequest request,
+        ReadRetrieveReadChatService chatService,
+        CancellationToken cancellationToken)
+    {
+        return chatService.ReplyOnYourDataStreamingAsync(
+                request.History, request.Overrides, cancellationToken);
+    }
+
+    private static IResult OnGetCitationBaseUrl(
+        IOptions<AppSettings> options)
+    {
+        return TypedResults.Ok(options.Value.ToCitationBaseUrl());
     }
 
     private static async Task<IResult> OnPostDocumentAsync(
@@ -159,4 +185,8 @@ internal static class WebApplicationExtensions
 
         return TypedResults.Ok(response);
     }
+
+    #endregion API methods implementation
+
+    #endregion Private Methods
 }
