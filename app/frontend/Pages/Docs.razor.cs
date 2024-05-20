@@ -8,6 +8,7 @@ public sealed partial class Docs : IDisposable
     private MudFileUpload<IReadOnlyList<IBrowserFile>> _fileUpload = null!;
     private Task _getDocumentsTask = null!;
     private bool _isLoadingDocuments = false;
+    private bool _isUploadingDocuments = false;
     private string _filter = "";
 
     // Store a cancelation token that will be used to cancel if the user disposes of this component.
@@ -63,42 +64,47 @@ public sealed partial class Docs : IDisposable
 
     private async Task SubmitFilesForUploadAsync()
     {
-        if (_fileUpload is { Files.Count: > 0 })
+        if (!FilesSelected)
         {
-            var cookie = await JSRuntime.InvokeAsync<string>("getCookie", "XSRF-TOKEN");
+            return;
+        }
 
-            var result = await Client.UploadDocumentsAsync(
-                _fileUpload.Files, MaxIndividualFileSize, cookie);
+        _isUploadingDocuments = true;
 
-            Logger.LogInformation("Result: {x}", result);
+        var cookie = await JSRuntime.InvokeAsync<string>("getCookie", "XSRF-TOKEN");
 
-            if (result.IsSuccessful)
-            {
-                Snackbar.Add(
-                    $"Uploaded {result.UploadedFiles.Length} documents.",
-                    Severity.Success,
-                    static options =>
-                    {
-                        options.ShowCloseIcon = true;
-                        options.VisibleStateDuration = 10_000;
-                    });
+        var result = await Client.UploadDocumentsAsync(
+            _fileUpload.Files, MaxIndividualFileSize, cookie);
 
-                await _fileUpload.ResetAsync();
+        Logger.LogInformation("Result: {x}", result);
+        _isUploadingDocuments = false;
 
-                // Update the documents list
-                await GetDocumentsAsync();
-            }
-            else
-            {
-                Snackbar.Add(
-                    result.Error,
-                    Severity.Error,
-                    static options =>
-                    {
-                        options.ShowCloseIcon = true;
-                        options.VisibleStateDuration = 10_000;
-                    });
-            }
+        if (result.IsSuccessful)
+        {
+            Snackbar.Add(
+                $"Uploaded {result.UploadedFiles.Length} documents.",
+                Severity.Success,
+                static options =>
+                {
+                    options.ShowCloseIcon = true;
+                    options.VisibleStateDuration = 10_000;
+                });
+
+            await _fileUpload.ResetAsync();
+
+            // Update the documents list
+            await GetDocumentsAsync();
+        }
+        else
+        {
+            Snackbar.Add(
+                result.Error,
+                Severity.Error,
+                static options =>
+                {
+                    options.ShowCloseIcon = true;
+                    options.VisibleStateDuration = 10_000;
+                });
         }
     }
 

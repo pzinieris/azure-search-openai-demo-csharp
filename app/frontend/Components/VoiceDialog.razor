@@ -7,7 +7,7 @@
                     <MudText Typo="Typo.subtitle1" Class="flex-grow-1">
                         Requesting client voices...
                     </MudText>
-                    <MudProgressCircular Color="Color.Secondary" Indeterminate="true" />
+                    <LoadingIcon ColorDisabled=false Color="Color.Secondary" />
                 </div>
                 break;
             case RequestVoiceState.FoundVoices:
@@ -32,7 +32,7 @@
                         Voice Speed (@(_voicePreferences!.Rate))
                     </MudSlider>
 
-                    <MudCheckBox @bind-Checked=@_voicePreferences!.IsEnabled Size="Size.Large"
+                    <MudCheckBox @bind-Value=@_voicePreferences!.IsEnabled Size="Size.Large"
                                  Color="Color.Secondary"
                                  Label="Text-to-speech Enabled (responses will be read aloud)" />
                 }
