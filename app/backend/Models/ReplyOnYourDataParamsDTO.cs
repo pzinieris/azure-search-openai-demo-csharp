@@ -1,4 +1,6 @@
-﻿namespace MinimalApi.Models;
+﻿using OpenAI.Chat;
 
-internal record ReplyOnYourDataParamsDTO(ChatCompletionsOptions ChatCompletionsOptions, string AIDeploymentName,
+namespace MinimalApi.Models;
+
+internal record ReplyOnYourDataParamsDTO(IEnumerable<ChatMessage> ChatMessages, ChatCompletionOptions ChatCompletionsOptions, string AIDeploymentName,
     string AIEmbeddingDeploymentName, string AzureSearchServiceEndpoint, string AzureSearchIndex);

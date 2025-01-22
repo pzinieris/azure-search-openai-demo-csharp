@@ -21,18 +21,19 @@
                         The document can be either a PDF file or an image file.
                         Each file cannot exceed a file size of @(MaxIndividualFileSize.ToHumanReadableSize())
                     </MudText>
-                    <MudFileUpload @ref="_fileUpload" T="IReadOnlyList<IBrowserFile>"
-                                   Accept=".pdf, .png, .jpg, .jpeg" MaximumFileCount="10" FilesChanged=@(files => StateHasChanged())
+                    <MudFileUpload @ref="@_fileUpload" T="IReadOnlyList<IBrowserFile>"
+                                   Accept=".pdf, .png, .jpg, .jpeg" MaximumFileCount="10" FilesChanged=@(files => { MudFileUploadFilesChanged(files); StateHasChanged(); })
                                    Required="true" RequiredError="You must select at least one file to upload.">
-                        <ButtonTemplate>
+                        <ActivatorContent>
                             <MudButton HtmlTag="label"
                                        Variant="Variant.Filled"
                                        StartIcon="@Icons.Material.Filled.FileOpen"
                                        Size="Size.Large"
-                                       for="@context">
+                                       For="(() => context)">
+                                       @* for="@context"> *@
                                 Select Documents
                             </MudButton>
-                        </ButtonTemplate>
+                        </ActivatorContent>
                         <SelectedTemplate>
                             <MudExpansionPanels Class="pt-4" Elevation=2>
                                 @{
@@ -46,7 +47,7 @@
                                             @if (enabled)
                                             {
                                                 <MudText>
-                                                    Selected @(context.Count) file(s): <MudChip Size="Size.Small">@(size.ToHumanReadableSize())</MudChip>
+                                                    Selected @(context.Count) file(s): <MudChip T="string" Size="Size.Small">@(size.ToHumanReadableSize())</MudChip>
                                                 </MudText>
                                             }
                                             else
@@ -56,7 +57,7 @@
                                         </div>
                                     </TitleContent>
                                     <ChildContent>
-                                        <MudList>
+                                        <MudList T="string">
                                             @foreach (var file in context ?? new List<IBrowserFile>())
                                             {
                                                 <MudListItem IconColor="Color.Error" @key="@file"
@@ -80,13 +81,21 @@
                                OnClick="@(async () => await _fileUpload.ResetAsync())">
                         Clear Selected Documents
                     </MudButton>
-                    <MudButton StartIcon="@Icons.Material.Filled.Upload"
-                               Variant="Variant.Filled"
+                    <MudButton Variant="Variant.Filled"
                                Color="Color.Primary"
-                               Disabled=@(!FilesSelected)
+                               Disabled=@(!FilesSelected || _isUploadingDocuments)
                                Size="Size.Large" Class="ml-auto mr-2 mb-2"
                                OnClick="@(async _ => await SubmitFilesForUploadAsync())">
-                        Upload File(s)
+                        @if (_isUploadingDocuments)
+                        {
+                            <LoadingIcon Class="ms-n1" ColorDisabled=true />
+                            <MudText Class="ms-2">Uploading</MudText>
+                        }
+                        else
+                        {
+                            <MudIcon Icon="@Icons.Material.Filled.Upload" Size="Size.Medium" />
+                            <MudText>Upload File(s)</MudText>
+                        }                        
                     </MudButton>
                 </MudCardActions>
             </MudForm>
@@ -101,8 +110,7 @@
                     <MudText Typo="Typo.h5">
                         Loading Documents
                     </MudText>
-                    <MudProgressCircular Indeterminate="true"
-                                         Size="Size.Small" Class="ml-2" />
+                    <LoadingIcon Class="ml-2" ColorDisabled=false />
                 }
                 else
                 {
@@ -170,7 +178,7 @@
                     <code>@context.ContentType</code>
                 </MudTd>
                 <MudTd DataLabel="Size">
-                    <MudChip Size="Size.Small">
+                    <MudChip T="string" Size="Size.Small">
                         @context.Size.ToHumanReadableSize()
                     </MudChip>
                 </MudTd>

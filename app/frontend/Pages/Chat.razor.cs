@@ -102,7 +102,6 @@ public sealed partial class Chat
     private UserQuestion _currentQuestion;
     private string _lastReferenceQuestion = "";
     private bool _isReceivingResponse = false;
-    private string _citationBaseUrl = "";
 
     private readonly Dictionary<UserQuestion, ApproachResponse?> _questionAndAnswerMap = [];
     private readonly MarkdownPipeline _pipeline = new MarkdownPipelineBuilder()
@@ -117,6 +116,7 @@ public sealed partial class Chat
 
     #region Properties
 
+    [Inject] public required IWebAssemblyHostEnvironment WebAssemblyHostEnvironment { get; set; }
     [Inject] public required ISessionStorageService SessionStorage { get; set; }
 
     [Inject] public required OpenAIPromptQueue OpenAIPrompts { get; set; }
@@ -137,12 +137,7 @@ public sealed partial class Chat
 
     protected override async Task OnInitializedAsync()
     {
-        // Retrieve and set the citationBaseUrl
-        var citationBaseUrl = await GetCitationBaseUrlAsync();
-        if (!string.IsNullOrWhiteSpace(citationBaseUrl))
-        {
-            _citationBaseUrl = citationBaseUrl;
-        }
+        Settings.Overrides.SemanticRanker = true;
 
         await base.OnInitializedAsync();
     }
@@ -188,7 +183,7 @@ public sealed partial class Chat
                 var (_, responseText, isComplete) = response;
                 //var html = Markdown.ToHtml(responseText, _pipeline);
 
-                var approachResponse = new ApproachResponse(responseText, null, null, null, _citationBaseUrl);
+                var approachResponse = new ApproachResponse(responseText, null, null, null, WebAssemblyHostEnvironment.BaseAddress);
                 _questionAndAnswerMap[_currentQuestion] = approachResponse;
                 _isReceivingResponse = isComplete is false;
 
@@ -210,33 +205,6 @@ public sealed partial class Chat
     }
 
     #endregion UI events
-
-    private async ValueTask<string?> GetCitationBaseUrlAsync()
-    {
-        var sessionKey = "CitationBaseUrl";
-
-        // Try to get the citationBaseUrl from the session storage
-        var citationBaseUrl = SessionStorage.GetItem<string>(sessionKey);
-        if (!string.IsNullOrWhiteSpace(citationBaseUrl))
-        {
-            return citationBaseUrl;
-        }
-
-        // Retrieve the citationBaseUrl from the API
-        citationBaseUrl = await ApiClient.GetCitationBaseUrlAsync();
-
-        if (string.IsNullOrWhiteSpace(citationBaseUrl))
-        {
-            Logger.LogError("CitationBaseUrl returned from API is null");
-
-            return null;
-        }
-
-        // Store the citationBaseUrl into the session storage, before returning
-        SessionStorage.SetItem<string>(sessionKey, citationBaseUrl);
-
-        return citationBaseUrl;
-    }
 
     #endregion Private Methods
 }

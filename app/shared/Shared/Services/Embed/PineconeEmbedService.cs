@@ -30,6 +30,8 @@ public sealed class PineconeEmbedService : AzureFormRecognizerDocumentParserServ
 
     public Task<bool> EmbedPDFBlobAsync(Stream blobStream, string blobName) => throw new NotImplementedException();
 
+    public Task<bool> EmbedPDFBlobPagesWithSplitTablesAsync(Stream pdfBlobStream, string blobName) => throw new NotImplementedException();
+
     public Task<bool> EmbedImageBlobAsync(Stream imageStream, string imageUrl, string imageName, CancellationToken ct = default) => throw new NotImplementedException();
 
     public Task CreateSearchIndexAsync(string searchIndexName, CancellationToken ct = default) => throw new NotImplementedException();

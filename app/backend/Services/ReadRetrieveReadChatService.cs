@@ -1,9 +1,14 @@
-﻿using System.Text;
+﻿using System.ClientModel;
+using System.Text;
+using Azure.AI.OpenAI.Chat;
 using Azure.Core;
 using Microsoft.SemanticKernel.Connectors.OpenAI;
 using MinimalApi.Models;
+using OpenAI;
+using OpenAI.Chat;
 using Shared.Domain;
 using Shared.Models.Settings;
+using Shared.Services.AI.Interface;
 using Shared.Services.Interfaces;
 
 namespace MinimalApi.Services;
@@ -15,7 +20,7 @@ public class ReadRetrieveReadChatService
     private readonly ILogger<ReadRetrieveReadChatService> _logger;
 
     private readonly ISearchService _searchClient;
-    private readonly OpenAIClient _openAIClient;
+    private readonly IAIClientService _clientService;
     private readonly AppSettings _appSettings;
     private readonly IComputerVisionService? _visionService;
     private readonly TokenCredential? _tokenCredential;
@@ -28,7 +33,7 @@ public class ReadRetrieveReadChatService
     public ReadRetrieveReadChatService(
         ILogger<ReadRetrieveReadChatService> logger,
         ISearchService searchClient,
-        OpenAIClient client,
+        IAIClientService clientService,
         AppSettings appSettings,
         IComputerVisionService? visionService = null,
         TokenCredential? tokenCredential = null)
@@ -36,12 +41,12 @@ public class ReadRetrieveReadChatService
         _logger = logger;
 
         _searchClient = searchClient;
-        _openAIClient = client;
+        _clientService = clientService;
         _appSettings = appSettings;
         _visionService = visionService;
         _tokenCredential = tokenCredential;
 
-        _kernel = GetSemanticKernel(client);
+        _kernel = GetSemanticKernel(clientService.AIClient);
     }
 
     #endregion Constructor
@@ -273,24 +278,25 @@ public class ReadRetrieveReadChatService
         var replyOnYourDataParams = ValidateAndGetChatCompletionsOptionsAndParams(history, overrides);
 
         // get answer
-        //var answer = await _openAIClient.GetChatCompletionsStreamingAsync(chatCompletionsOptions);        
-        var answer = await _openAIClient.GetChatCompletionsAsync(replyOnYourDataParams.ChatCompletionsOptions, cancellationToken: cancellationToken);
+        //var answer = await _openAIClient.GetChatCompletionsAsync(replyOnYourDataParams.ChatCompletionsOptions, cancellationToken: cancellationToken);
+        ClientResult<ChatCompletion> response = await _clientService
+            .GetChatClient(replyOnYourDataParams.AIDeploymentName)
+            .CompleteChatAsync(replyOnYourDataParams.ChatMessages, replyOnYourDataParams.ChatCompletionsOptions, cancellationToken: cancellationToken);
 
-        var aiAnswer = answer.Value ?? throw new InvalidOperationException("Failed to get search query");
-        _logger.LogInformation("""Answer retrieved from 'GetChatCompletionsAsync': '{Answer}'""", aiAnswer);
+        ChatCompletion aiAnswer = response.Value ?? throw new InvalidOperationException("Failed to get search query");
+        _logger.LogInformation("""Answer retrieved from 'CompleteChatAsync': '{Answer}'""", aiAnswer);
 
-        var aiMessage = aiAnswer.Choices[0]?.Message;
-        var ans = aiMessage?.Content ?? throw new InvalidOperationException("Failed to get answer");
+        var ans = aiAnswer.Content[0]?.Text ?? throw new InvalidOperationException("Failed to get answer");
         var thoughts = "";
 
         // step 4
         // add follow up questions if requested
         if (overrides?.SuggestFollowupQuestions is true)
         {
-            var messages = new List<ChatRequestMessage>()
+            var messages = new List<ChatMessage>()
             {
-                new ChatRequestSystemMessage(@"You are a helpful AI assistant"),
-                new ChatRequestUserMessage($@"Generate three follow-up question based on the answer you just generated.
+                new SystemChatMessage(@"You are a helpful AI assistant"),
+                new UserChatMessage($@"Generate three follow-up question based on the answer you just generated.
                     # Answer
                     {ans}
 
@@ -303,15 +309,15 @@ public class ReadRetrieveReadChatService
                         ""What is the out-of-pocket maximum?""
                     ]")
             };
-            var chatCompletionsOptions = new ChatCompletionsOptions(replyOnYourDataParams.AIDeploymentName, messages);
 
-            var followUpQuestionsAnswer = await _openAIClient.GetChatCompletionsAsync(chatCompletionsOptions, cancellationToken: cancellationToken);
+            ClientResult<ChatCompletion> followUpQuestionsAnswer = await _clientService
+                .GetChatClient(replyOnYourDataParams.AIDeploymentName)
+                .CompleteChatAsync(messages, cancellationToken: cancellationToken);
 
-            var followUpQuestionsAIAnswer = followUpQuestionsAnswer.Value ?? throw new InvalidOperationException("Failed to get followUp questions");
-            _logger.LogInformation("""Answer retrieved from 'GetChatCompletionsAsync': '{Answer}'""", followUpQuestionsAIAnswer);
+            ChatCompletion followUpQuestionsAIAnswer = followUpQuestionsAnswer.Value ?? throw new InvalidOperationException("Failed to get followUp questions");
+            _logger.LogInformation("""Answer retrieved from 'CompleteChatAsync': '{Answer}'""", followUpQuestionsAIAnswer);
 
-            var followUpQuestionsAIMessage = followUpQuestionsAIAnswer.Choices[0]?.Message;
-            var followUpQuestions = followUpQuestionsAIMessage?.Content ?? throw new InvalidOperationException("Failed to get answer");
+            var followUpQuestions = followUpQuestionsAIAnswer.Content[0]?.Text ?? throw new InvalidOperationException("Failed to get answer");
 
             var followUpQuestionsObject = JsonSerializer.Deserialize<JsonElement>(followUpQuestions);
             var followUpQuestionsList = followUpQuestionsObject.EnumerateArray().Select(x => x.GetString()).ToList();
@@ -322,15 +328,16 @@ public class ReadRetrieveReadChatService
             }
         }
 
-        var documentContentList = new SupportingContentRecord[aiMessage.AzureExtensionsContext.Citations.Count];
-        for (var x = 0; x < aiMessage.AzureExtensionsContext.Citations.Count; x++)
+        var documentContentList = new SupportingContentRecord[aiAnswer.Content.Count];
+        for (var x = 0; x < aiAnswer.Content.Count; x++)
         {
-            var citation = aiMessage.AzureExtensionsContext.Citations.ElementAt(x);
+            var citation = aiAnswer.Content.ElementAt(x);
 
-            documentContentList[x] = new SupportingContentRecord(citation.Filepath, citation.Content);
+            //documentContentList[x] = new SupportingContentRecord(citation.ImageUri., citation.Content);
+            //documentContentList[x] = new SupportingContentRecord(citation.Filepath, citation.Content);
 
             // Format the response by adding the desired document reference
-            ans = ans.Replace($"[doc{x + 1}]", $"[{citation.Filepath}]");
+            //ans = ans.Replace($"[doc{x + 1}]", $"[{citation.Filepath}]");
         }
 
         return new ApproachResponse(ans, thoughts, documentContentList, null, _appSettings.ToCitationBaseUrl());
@@ -351,68 +358,113 @@ public class ReadRetrieveReadChatService
         var replyOnYourDataParams = ValidateAndGetChatCompletionsOptionsAndParams(history, overrides);
 
         // Get AI answer from prompt
-        var aiAnswer = await _openAIClient.GetChatCompletionsStreamingAsync(replyOnYourDataParams.ChatCompletionsOptions, cancellationToken: cancellationToken);
-
-        string temporaryAnswerWithDocument = "";
-        IEnumerable<AzureChatExtensionDataSourceResponseCitation>? citations = null;
+        AsyncCollectionResult<StreamingChatCompletionUpdate> response = _clientService
+            .GetChatClient(replyOnYourDataParams.AIDeploymentName)
+            .CompleteChatStreamingAsync(replyOnYourDataParams.ChatMessages, replyOnYourDataParams.ChatCompletionsOptions, cancellationToken: cancellationToken);
 
         var answer = new StringBuilder();
-        await foreach (var choice in aiAnswer.WithCancellation(cancellationToken))
+        string temporaryAnswerWithDocument = "";
+#pragma warning disable AOAI001 // Type is for evaluation purposes only and is subject to change or removal in future updates. Suppress this diagnostic to proceed.
+        IEnumerable<ChatCitation>? citations = null;
+#pragma warning restore AOAI001 // Type is for evaluation purposes only and is subject to change or removal in future updates. Suppress this diagnostic to proceed.
+        bool returnAIOriginalContent = true;
+        StringBuilder contentUpdate;
+        await foreach (StreamingChatCompletionUpdate update in response.WithCancellation(cancellationToken))
         {
-            if (choice.ContentUpdate is { Length: > 0 })
+            if (update.ContentUpdate is { Count: > 0 })
             {
-                // Construct the hole answer, piece by piece, to be used for the followUp questions
-                answer.Append(choice.ContentUpdate);
-
-                // If true, we store it temporally before returning it as answer, to replace it with the appropriate citation
-                // Else, if the temporaryAnswerWithDocument already has a value, then we already identified the start of the reference document, in previews choice/chunk
-                if (choice.ContentUpdate.Contains('[')
-                    || temporaryAnswerWithDocument != "")
+                contentUpdate = new StringBuilder();
+                foreach (ChatMessageContentPart part in update.ContentUpdate)
                 {
-                    // Add it into the StringBuilder and continue
-                    temporaryAnswerWithDocument += choice.ContentUpdate;
+                    // Construct the hole answer, piece by piece, to be used for the followUp questions
+                    answer.Append(part.Text);
+                    contentUpdate.Append(part.Text);
 
-                    // This should never happen, since we are receiving the citations from the first ever choice/chunk
-                    // We continue the iteration, until we receive the citations
-                    if (citations == null)
+                    // Citations references are returned by the services as [doc1], [doc2], ...
+                    // If true, we store it temporally before returning it as answer, to replace it with the appropriate citation
+                    // Else, if the temporaryAnswerWithDocument already has a value, then we already identified the start of the reference document, in previews choice/chunk
+                    if (part.Text.Contains('[')
+                        || temporaryAnswerWithDocument != "")
                     {
-                        continue;
-                    }
+                        // Add it into the StringBuilder and continue
+                        temporaryAnswerWithDocument += part.Text;
 
-                    // We need to make sure that we have all the complete document references part included into the current string
-                    // eg. [doc1][doc2]
-                    // An incomplete references part might be [doc1][doc
-                    var docReferenceOpeningsCount = temporaryAnswerWithDocument.Count(c => c == '[');
-                    var docReferenceClosingCount = temporaryAnswerWithDocument.Count(c => c == ']');
-
-                    // If true, then we can go ahead and replace with the citations reference
-                    if (docReferenceOpeningsCount == docReferenceClosingCount)
-                    {
-                        for (int index = temporaryAnswerWithDocument.IndexOf("[doc"); index > -1; index = temporaryAnswerWithDocument.IndexOf("[doc", index + 1))
+                        // This should never happen, since we are receiving the citations from the first ever choice/chunk
+                        // We continue the iteration, until we receive the citations
+                        if (citations == null)
                         {
-                            // Extract the hole document reference from the string
-                            var documentReference = temporaryAnswerWithDocument.Substring(index, temporaryAnswerWithDocument.IndexOf("]", index) + 1 - index);
-                            // Get citation index number
-                            var documentReferenceNumber = Convert.ToInt32(documentReference.Replace("[doc", "").Replace("]", ""));
-                            // Replace all occurrences into the string with the citation
-                            temporaryAnswerWithDocument = temporaryAnswerWithDocument.Replace($"[doc{documentReferenceNumber}]", $"[{citations.ElementAt(documentReferenceNumber).Filepath}]");
+                            continue;
                         }
 
-                        // We finally returning the chunk back too the response
-                        yield return new ChatChunkResponse(temporaryAnswerWithDocument.Length, temporaryAnswerWithDocument);
-                        // We are making sure tho empty the string before exiting
-                        temporaryAnswerWithDocument = "";
-                    }
+                        // We need to make sure that we have all the complete document references part included into the current string
+                        // eg. [doc1][doc2]
+                        // An incomplete references part might be [doc1][doc
+                        var docReferenceOpeningsCount = temporaryAnswerWithDocument.Count(c => c == '[');
+                        var docReferenceClosingCount = temporaryAnswerWithDocument.Count(c => c == ']');
 
+                        // If true, then we can go ahead and replace with the citations reference
+                        if (docReferenceOpeningsCount == docReferenceClosingCount)
+                        {
+                            for (int index = temporaryAnswerWithDocument.IndexOf("[doc"); index > -1; index = temporaryAnswerWithDocument.IndexOf("[doc", index + 1))
+                            {
+                                // Extract the hole document reference from the string
+                                var documentReference = temporaryAnswerWithDocument.Substring(index, temporaryAnswerWithDocument.IndexOf("]", index) + 1 - index);
+                                // Get citation index number
+                                var documentReferenceNumber = Convert.ToInt32(documentReference.Replace("[doc", "").Replace("]", ""));
+
+                                // Some citations might have more than one document refences
+                                var citationFilePath = citations.ElementAt(documentReferenceNumber - 1).FilePath;
+                                // Replace all occurrences into the string with the citation
+                                if (!citationFilePath.Contains(','))
+                                {
+                                    temporaryAnswerWithDocument = temporaryAnswerWithDocument.Replace($"[doc{documentReferenceNumber}]", $"[{citationFilePath}]");
+                                }
+                                else
+                                {
+                                    var citationFilePathsArr = citationFilePath.Split(',');
+                                    string documentReferences = "";
+                                    for (var x = 0; x < citationFilePathsArr.Length; x++)
+                                    {
+                                        documentReferences += $"[{citationFilePathsArr[x]}]";
+                                    }
+
+                                    temporaryAnswerWithDocument = temporaryAnswerWithDocument.Replace($"[doc{documentReferenceNumber}]", documentReferences);
+                                }
+                            }
+
+                            // We finally returning the chunk back too the response
+                            yield return new ChatChunkResponse(temporaryAnswerWithDocument.Length, temporaryAnswerWithDocument);
+                            // We are making sure tho empty the string before exiting
+                            temporaryAnswerWithDocument = "";
+                            // Finally, we mark the returnAIOriginalContent flag as false, since we have tampered it with our actions
+                            returnAIOriginalContent = false;
+                        }
+
+                        continue;
+                    }
+                }
+
+                // Means that the content has already been returned, by first tampering it with our actions
+                if (!returnAIOriginalContent)
+                {
+                    returnAIOriginalContent = true;
                     continue;
                 }
 
-                yield return new ChatChunkResponse(choice.ContentUpdate.Length, choice.ContentUpdate);
+                yield return new ChatChunkResponse(contentUpdate.Length, contentUpdate.ToString());
+                // Always have a delay after each return to simulate the streaming in the frontend
+                await Task.Delay(30);
             }
 
-            if ((citations == null || !citations.Any()) && (choice.AzureExtensionsContext?.Citations?.Any() ?? false))
+            if ((citations == null || !citations.Any()))
             {
-                citations = choice.AzureExtensionsContext.Citations;
+#pragma warning disable AOAI001 // Type is for evaluation purposes only and is subject to change or removal in future updates. Suppress this diagnostic to proceed.
+                ChatMessageContext chatMessageContext = update.GetMessageContext();
+#pragma warning restore AOAI001 // Type is for evaluation purposes only and is subject to change or removal in future updates. Suppress this diagnostic to proceed.
+                if (chatMessageContext.Citations.Any())
+                {
+                    citations = chatMessageContext.Citations;
+                }
             }
         }
 
@@ -424,27 +476,26 @@ public class ReadRetrieveReadChatService
         // Get follow up questions, if requested
         if (overrides?.SuggestFollowupQuestions is true)
         {
-            var messages = new List<ChatRequestMessage>()
+            AsyncCollectionResult<StreamingChatCompletionUpdate> followUpQuestionsAnswer = _clientService
+                .GetChatClient(replyOnYourDataParams.AIDeploymentName)
+                .CompleteChatStreamingAsync(
+                [
+                    new SystemChatMessage(@"You are a helpful AI assistant"),
+                    new UserChatMessage($@"Generate three follow-up question based on the answer you just generated.
+                        # Answer
+                        {answer.ToString()}
+
+                        # Format of the response
+                        Return each follow-up question between << and >>
+                        e.g.
+                        &nbsp;<<follow-up question 1>>&nbsp;&nbsp;<<follow-up question 2>>&nbsp;&nbsp;<<follow-up question 3>>&nbsp;")
+                ], cancellationToken: cancellationToken);
+
+            await foreach (StreamingChatCompletionUpdate update in followUpQuestionsAnswer.WithCancellation(cancellationToken))
             {
-                new ChatRequestSystemMessage(@"You are a helpful AI assistant"),
-                new ChatRequestUserMessage($@"Generate three follow-up question based on the answer you just generated.
-                    # Answer
-                    {answer.ToString()}
-
-                    # Format of the response
-                    Return each follow-up question between << and >>
-                    e.g.
-                    &nbsp;<<follow-up question 1>>&nbsp;&nbsp;<<follow-up question 2>>&nbsp;&nbsp;<<follow-up question 3>>&nbsp;")
-            };
-            var chatCompletionsOptions = new ChatCompletionsOptions(replyOnYourDataParams.AIDeploymentName, messages);
-
-            var followUpQuestionsAnswer = await _openAIClient.GetChatCompletionsStreamingAsync(chatCompletionsOptions, cancellationToken: cancellationToken);
-
-            await foreach (var choice in followUpQuestionsAnswer.WithCancellation(cancellationToken))
-            {
-                if (choice.ContentUpdate is { Length: > 0 })
+                foreach (ChatMessageContentPart part in update.ContentUpdate)
                 {
-                    yield return new ChatChunkResponse(choice.ContentUpdate.Length, choice.ContentUpdate);
+                    yield return new ChatChunkResponse(part.Text.Length, part.Text);
                 }
             }
         }
@@ -474,13 +525,13 @@ public class ReadRetrieveReadChatService
         {
             var deployedModelName = _appSettings.AzureOpenAiChatGptDeployment;
             ArgumentNullException.ThrowIfNullOrWhiteSpace(deployedModelName);
-            kernelBuilder = kernelBuilder.AddAzureOpenAIChatCompletion(deployedModelName, client);
+            kernelBuilder = kernelBuilder.AddAzureOpenAIChatCompletion(deployedModelName, (AzureOpenAIClient)client);
 
             var embeddingModelName = _appSettings.AzureOpenAiEmbeddingDeployment;
             if (!string.IsNullOrEmpty(embeddingModelName))
             {
 #pragma warning disable SKEXP0010 // Type is for evaluation purposes only and is subject to change or removal in future updates. Suppress this diagnostic to proceed.
-                kernelBuilder = kernelBuilder.AddAzureOpenAITextEmbeddingGeneration(embeddingModelName, client);
+                kernelBuilder = kernelBuilder.AddAzureOpenAITextEmbeddingGeneration(embeddingModelName, (AzureOpenAIClient)client);
 #pragma warning restore SKEXP0010 // Type is for evaluation purposes only and is subject to change or removal in future updates. Suppress this diagnostic to proceed.
             }
         }
@@ -530,36 +581,37 @@ public class ReadRetrieveReadChatService
         ArgumentNullException.ThrowIfNullOrEmpty(azureSearchIndex);
 
         var useSemanticRanker = overrides?.SemanticRanker ?? false;
-        AzureSearchQueryType queryType;
+#pragma warning disable AOAI001 // Type is for evaluation purposes only and is subject to change or removal in future updates. Suppress this diagnostic to proceed.
+        DataSourceQueryType queryType;
         if (overrides?.RetrievalMode == RetrievalMode.Hybrid)
         {
             if (useSemanticRanker)
             {
-                queryType = AzureSearchQueryType.VectorSemanticHybrid;
+                queryType = DataSourceQueryType.VectorSemanticHybrid;
             }
             else
             {
-                queryType = AzureSearchQueryType.VectorSimpleHybrid;
+                queryType = DataSourceQueryType.VectorSimpleHybrid;
             }
         }
         else if (useSemanticRanker)
         {
-            queryType = AzureSearchQueryType.Semantic;
+            queryType = DataSourceQueryType.Semantic;
         }
         else if (overrides?.RetrievalMode == RetrievalMode.Vector)
         {
-            queryType = AzureSearchQueryType.Vector;
+            queryType = DataSourceQueryType.Vector;
         }
         else
         {
-            queryType = AzureSearchQueryType.Simple;
+            queryType = DataSourceQueryType.Simple;
         }
-
+#pragma warning restore AOAI001 // Type is for evaluation purposes only and is subject to change or removal in future updates. Suppress this diagnostic to proceed.
         // step 1
         // put together the conversation history to generate answer
-        var messages = new List<ChatRequestMessage>()
+        var messages = new List<ChatMessage>()
         {
-            new ChatRequestSystemMessage(@"You are a system assistant who helps the company employees with their questions.
+            new SystemChatMessage(@"You are a system assistant who helps the company employees with their questions.
                 Code snippets must be generated to C# programming language, unless specified otherwise by the user.
                 You will always reply with a Markdown formatted response.")
         };
@@ -567,47 +619,42 @@ public class ReadRetrieveReadChatService
         // add chat history
         foreach (var turn in history)
         {
-            messages.Add(new ChatRequestUserMessage(turn.User));
+            messages.Add(new UserChatMessage(turn.User));
             if (turn.Bot is { } botMessage)
             {
-                messages.Add(new ChatRequestAssistantMessage(botMessage));
+                messages.Add(new AssistantChatMessage(botMessage));
             }
         }
 
-        var chatCompletionsOptions = new ChatCompletionsOptions(aiDeploymentName, messages)
+        var chatCompletionsOptions = new ChatCompletionOptions();
+#pragma warning disable AOAI001 // Type is for evaluation purposes only and is subject to change or removal in future updates. Suppress this diagnostic to proceed.
+        chatCompletionsOptions.AddDataSource(new AzureSearchChatDataSource()
         {
-            AzureExtensionsOptions = new AzureChatExtensionsOptions()
+            Endpoint = new Uri(azureSearchServiceEndpoint),
+            Authentication = DataSourceAuthentication.FromSystemManagedIdentity(),
+            IndexName = azureSearchIndex,
+            TopNDocuments = overrides?.Top ?? 5,
+            QueryType = queryType,
+            OutputContexts = DataSourceOutputContexts.Citations,
+            SemanticConfiguration = "default",
+            VectorizationSource = DataSourceVectorizer.FromDeploymentName(aiEmbeddingDeploymentName),
+            FieldMappings = new DataSourceFieldMappings
             {
-                Extensions =
+                TitleFieldName = VectorizeSearchEntity.IdAsJsonPropertyName(),
+                FilePathFieldName = VectorizeSearchEntity.SourceFileAsJsonPropertyName(),
+                ContentFieldNames =
                 {
-                    new AzureSearchChatExtensionConfiguration()
-                    {
-                        SearchEndpoint = new Uri(azureSearchServiceEndpoint),
-                        Authentication = new OnYourDataSystemAssignedManagedIdentityAuthenticationOptions(),
-                        IndexName = azureSearchIndex,
-                        DocumentCount = overrides?.Top ?? 5,
-                        QueryType = queryType,
-                        SemanticConfiguration = "default",
-                        VectorizationSource = new OnYourDataDeploymentNameVectorizationSource(aiEmbeddingDeploymentName),
-                        FieldMappingOptions = new AzureSearchIndexFieldMappingOptions()
-                        {
-                            TitleFieldName = VectorizeSearchEntity.IdAsJsonPropertyName(),
-                            FilepathFieldName = VectorizeSearchEntity.SourceFileAsJsonPropertyName(),
-                            ContentFieldNames =
-                            {
-                                VectorizeSearchEntity.ContentAsJsonPropertyName()
-                            },
-                            VectorFieldNames =
-                            {
-                                VectorizeSearchEntity.EmbeddingAsJsonPropertyName()
-                            }
-                        }
-                    }
+                    VectorizeSearchEntity.ContentAsJsonPropertyName()
+                },
+                VectorFieldNames =
+                {
+                    VectorizeSearchEntity.EmbeddingAsJsonPropertyName()
                 }
             }
-        };
+        });
+#pragma warning restore AOAI001 // Type is for evaluation purposes only and is subject to change or removal in future updates. Suppress this diagnostic to proceed.
 
-        return new ReplyOnYourDataParamsDTO(chatCompletionsOptions, aiDeploymentName, aiEmbeddingDeploymentName, azureSearchServiceEndpoint, azureSearchIndex);
+        return new ReplyOnYourDataParamsDTO(messages, chatCompletionsOptions, aiDeploymentName, aiEmbeddingDeploymentName, azureSearchServiceEndpoint, azureSearchIndex);
     }
 
     #endregion Private Methods

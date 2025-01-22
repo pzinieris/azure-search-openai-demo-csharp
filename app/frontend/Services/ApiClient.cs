@@ -25,7 +25,7 @@ public sealed class ApiClient(HttpClient httpClient)
     }
 
     public async Task<UploadDocumentsResponse> UploadDocumentsAsync(
-        IReadOnlyList<IBrowserFile> files,
+        IEnumerable<IBrowserFile> files,
         long maxAllowedSize,
         string cookie)
     {

@@ -1,4 +1,6 @@
-﻿namespace ClientApp.Services;
+﻿using Microsoft.AspNetCore.Components.WebAssembly.Http;
+
+namespace ClientApp.Services;
 
 public sealed class OpenAIPromptQueue(
     IServiceProvider provider,
@@ -43,24 +45,27 @@ public sealed class OpenAIPromptQueue(
         {
             try
             {
+                var endpoint = useDocuments ? AIWithDocumentsEndpoint : AIEndpoint;
+
+                using var request = new HttpRequestMessage(HttpMethod.Post, endpoint);
+                request.SetBrowserResponseStreamingEnabled(true); // Enable response streaming
+
                 var options = SerializerOptions.Default;
                 var json = JsonSerializer.Serialize(bodyObject, options);
-
                 using var body = new StringContent(json, Encoding.UTF8, "application/json");
-                using var scope = provider.CreateScope();
+                request.Content = body;
 
+                using var scope = provider.CreateScope();
                 var factory = scope.ServiceProvider.GetRequiredService<IHttpClientFactory>();
                 using var client = factory.CreateClient(typeof(ApiClient).Name);
 
-                var endpoint = useDocuments ? AIWithDocumentsEndpoint : AIEndpoint;
-                var response = await client.PostAsync(endpoint, body);
-
+                // Be sure to use HttpCompletionOption.ResponseHeadersRead
+                using var response = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead);
                 if (response.IsSuccessStatusCode)
                 {
                     using var stream = await response.Content.ReadAsStreamAsync();
 
-                    await foreach (var chunk in
-                        JsonSerializer.DeserializeAsyncEnumerable<ChatChunkResponse>(stream, options))
+                    await foreach (var chunk in JsonSerializer.DeserializeAsyncEnumerable<ChatChunkResponse>(stream, options))
                     {
                         if (chunk is null)
                         {
@@ -69,12 +74,8 @@ public sealed class OpenAIPromptQueue(
 
                         _responseBuffer.Append(chunk.Text);
 
-                        var responseText = NormalizeResponseText(_responseBuffer, logger);
                         await handler(
-                        new PromptResponse(
-                                prompt, responseText));
-
-                        await Task.Delay(1);
+                            new PromptResponse(prompt, _responseBuffer.ToString()));
                     }
                 }
             }
@@ -89,8 +90,8 @@ public sealed class OpenAIPromptQueue(
                 {
                     var responseText = NormalizeResponseText(_responseBuffer, logger);
                     await handler(
-                    new PromptResponse(
-                            prompt, responseText, true));
+                        new PromptResponse(prompt, responseText, true));
+
                     _responseBuffer.Clear();
                 }
 

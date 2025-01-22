@@ -1,10 +1,9 @@
-﻿using System.Net;
+﻿using System.ClientModel;
+using System.Net;
 using System.Text;
-using System.Text.Json.Nodes;
 using System.Text.RegularExpressions;
 using Azure;
 using Azure.AI.FormRecognizer.DocumentAnalysis;
-using Azure.AI.OpenAI;
 using Azure.Search.Documents;
 using Azure.Search.Documents.Indexes;
 using Azure.Search.Documents.Indexes.Models;
@@ -12,10 +11,11 @@ using Azure.Search.Documents.Models;
 using Azure.Storage.Blobs;
 using Azure.Storage.Blobs.Models;
 using Microsoft.Extensions.Logging;
-using Newtonsoft.Json;
+using OpenAI.Embeddings;
 using Shared.Domain;
 using Shared.Enum;
 using Shared.Models;
+using Shared.Services.AI.Interface;
 using Shared.Services.Interfaces;
 
 namespace Shared.Services;
@@ -24,13 +24,14 @@ public sealed partial class AzureSearchEmbedService : AzureFormRecognizerDocumen
 {
     #region Private Fields
 
-    private readonly OpenAIClient _openAIClient;
+    private readonly IAIClientService _clientService;
     private readonly string _embeddingModelName;
     private readonly SearchClient _searchClient;
     private readonly string _searchIndexName;
     private readonly SearchIndexClient _searchIndexClient;
     private readonly DocumentAnalysisClient _documentAnalysisClient;
     private readonly BlobContainerClient _corpusContainerClient;
+    private readonly BlobContainerClient _documentsStorageContainerClient;
     private readonly IComputerVisionService? _computerVisionService;
     private readonly bool _includeImageEmbeddingsField;
     private readonly ILogger<AzureSearchEmbedService>? _logger;
@@ -40,18 +41,19 @@ public sealed partial class AzureSearchEmbedService : AzureFormRecognizerDocumen
 
     #region Contructor/s
 
-    public AzureSearchEmbedService(OpenAIClient openAIClient, string embeddingModelName, SearchClient searchClient, string searchIndexName, SearchIndexClient searchIndexClient,
-        DocumentAnalysisClient documentAnalysisClient, BlobContainerClient corpusContainerClient, IComputerVisionService? computerVisionService = null,
-        bool includeImageEmbeddingsField = false, ILogger<AzureSearchEmbedService>? logger = null)
+    public AzureSearchEmbedService(IAIClientService clientService, string embeddingModelName, SearchClient searchClient, string searchIndexName, SearchIndexClient searchIndexClient,
+        DocumentAnalysisClient documentAnalysisClient, BlobContainerClient corpusContainerClient, BlobContainerClient documentsStorageContainerClient,
+        IComputerVisionService? computerVisionService = null, bool includeImageEmbeddingsField = false, ILogger<AzureSearchEmbedService>? logger = null)
         : base(logger, documentAnalysisClient)
     {
-        _openAIClient = openAIClient;
+        _clientService = clientService;
         _embeddingModelName = embeddingModelName;
         _searchClient = searchClient;
         _searchIndexName = searchIndexName;
         _searchIndexClient = searchIndexClient;
         _documentAnalysisClient = documentAnalysisClient;
         _corpusContainerClient = corpusContainerClient;
+        _documentsStorageContainerClient = documentsStorageContainerClient;
         _computerVisionService = computerVisionService;
         _includeImageEmbeddingsField = includeImageEmbeddingsField;
         _logger = logger;
@@ -76,7 +78,7 @@ public sealed partial class AzureSearchEmbedService : AzureFormRecognizerDocumen
             // Corpus name format: fileName-{page}.txt
             foreach (var page in pageMap)
             {
-                var corpusName = $"""{fileNameWithoutExtension}-{page.Index}.txt""";
+                var corpusName = $"""{fileNameWithoutExtension}.txt""";
                 await UploadCorpusAsync(corpusName, page.Text);
 
                 corpusNames.Add(corpusName);
@@ -91,6 +93,67 @@ public sealed partial class AzureSearchEmbedService : AzureFormRecognizerDocumen
             await IndexSectionsAsync(sections);
 
             // Finally, the blob metadata for all files added into the blob
+            await SetCorpusBlobMetadataAsSucceededStatusAsync(corpusNames);
+
+            return true;
+        }
+        catch (Exception exception)
+        {
+            _logger?.LogError(exception, """Failed to embed blob '{BlobName}'""", blobName);
+
+            throw;
+        }
+    }
+
+    public async Task<bool> EmbedPDFBlobPagesWithSplitTablesAsync(Stream pdfBlobStream, string blobName)
+    {
+        try
+        {
+            await EnsureSearchIndexAsync(_searchIndexName);
+            Console.WriteLine($"""Embedding blob '{blobName}'""");
+            var pageMap = await GetDocumentTextForPagesWithSplitTablesAsync(pdfBlobStream, blobName);
+
+            var fileNameWithoutExtension = Path.GetFileNameWithoutExtension(blobName);
+            var fileExtension = Path.GetExtension(blobName);
+
+            var corpusNames = new List<string>();
+            IList<Section> pagesToIndex = new List<Section>();
+            // Create content document and upload to blob
+            // Create corpus from page map and upload to blob
+            // Corpus name format: fileName-{fromPage}to{toPage}.txt
+            foreach (var page in pageMap)
+            {
+                var corpusName = $"""{fileNameWithoutExtension}-{page.FromPageNumber}to{page.ToPageNumber}.txt""";
+                await UploadCorpusAsync(corpusName, page.Text);
+
+                corpusNames.Add(corpusName);
+
+                // We are creating the sourceFile string with all the blob files referenced by the AI search index
+                string blobNames = "";
+                for (var x = page.FromPageNumber; x <= page.ToPageNumber; x++)
+                {
+                    if (blobNames != "")
+                    {
+                        blobNames += ",";
+                    }
+
+                    blobNames += $"""{fileNameWithoutExtension}-{x}{fileExtension}""";
+                }
+
+                // Here also we are creating the Indexing sections for the AI Search
+                pagesToIndex.Add(new Section(
+                    Id: MatchInSetRegex().Replace($"""{blobName}-{page.FromPageNumber}to{page.ToPageNumber}""", """_""").TrimStart('_'),
+                    Content: page.Text,
+                    SourcePage: BlobNameFromFilePage(blobNames, FindPage(pageMap, 0)),
+                    SourceFile: blobNames));
+            }
+
+            _logger?.LogInformation("""Indexing sections from '{BlobName}' into search index '{SearchIndexName}'""", blobName, _searchIndexName);
+
+            // Index the sections into AzureSearch service
+            await IndexSectionsAsync(pagesToIndex);
+
+            // Update the corpus blob metadata for all files added into the blob
             await SetCorpusBlobMetadataAsSucceededStatusAsync(corpusNames);
 
             return true;
@@ -226,7 +289,7 @@ public sealed partial class AzureSearchEmbedService : AzureFormRecognizerDocumen
         {
             if (page.Values.Any(indexName => indexName == searchIndexName))
             {
-                _logger?.LogWarning("""Search index '{SearchIndexName}' already exists""", searchIndexName);
+                _logger?.LogInformation("""Search index '{SearchIndexName}' already exists""", searchIndexName);
 
                 return;
             }
@@ -385,13 +448,15 @@ public sealed partial class AzureSearchEmbedService : AzureFormRecognizerDocumen
 
         foreach (var section in sections)
         {
-            var embeddings = await _openAIClient.GetEmbeddingsAsync(new EmbeddingsOptions(_embeddingModelName, [section.Content.Replace('\r', ' ')]));
+            ClientResult<OpenAIEmbedding> embeddingsResult = await _clientService
+                .GetEmbeddingClient(_embeddingModelName)
+                .GenerateEmbeddingAsync(section.Content.Replace('\r', ' '));
 
-            var embedding = embeddings.Value.Data.FirstOrDefault()?.Embedding.ToArray() ?? [];
+            ReadOnlyMemory<float> embedding = embeddingsResult?.Value?.ToFloats() ?? null;
 
             batch.Actions.Add(new IndexDocumentsAction<VectorizeSearchEntity>(
                 IndexActionType.MergeOrUpload,
-                VectorizeSearchEntity.CreateDocument(section.Id, section.Content, section.SourceFile, section.SourcePage, embedding)));
+                VectorizeSearchEntity.CreateDocument(section.Id, section.Content, section.SourceFile, section.SourcePage, embedding.ToArray())));
 
             iteration++;
             // Every one thousand documents, batch create.
@@ -448,7 +513,7 @@ public sealed partial class AzureSearchEmbedService : AzureFormRecognizerDocumen
     private async Task IndexDocumentsToAzureSearchAsync(IndexDocumentsBatch<VectorizeSearchEntity> batch)
     {
         var parsedBatch = ParseVectorizeSearchEntityBatchToSearchDocumentBatch(batch);
-        IndexDocumentsResult result = await _searchClient.IndexDocumentsAsync(parsedBatch);
+        IndexDocumentsResult result = await _searchClient.IndexDocumentsAsync(parsedBatch, new IndexDocumentsOptions { ThrowOnAnyError = true });
 
         int succeeded = result.Results.Count(r => r.Succeeded);
         _logger?.LogInformation("""Indexed {BatchCount} sections, {SucceededCount} succeeded""", batch.Actions.Count, succeeded);

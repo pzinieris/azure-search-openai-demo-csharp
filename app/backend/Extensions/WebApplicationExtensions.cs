@@ -1,6 +1,12 @@
-﻿using Microsoft.Extensions.Options;
+﻿using System.ClientModel;
+using System.Text;
+using Azure;
+using Microsoft.Extensions.Options;
+using OpenAI.Chat;
+using OpenAI.Images;
 using Shared.Enum;
 using Shared.Models.Settings;
+using Shared.Services.AI.Interface;
 
 namespace MinimalApi.Extensions;
 
@@ -27,6 +33,9 @@ internal static class WebApplicationExtensions
         // Get all documents
         api.MapGet("documents", OnGetDocumentsAsync);
 
+        // Get all documents
+        api.MapGet("document", OnGetDocumentAsync);
+
         // Get DALL-E image result from prompt
         api.MapPost("images", OnPostImagePromptAsync);
 
@@ -51,35 +60,42 @@ internal static class WebApplicationExtensions
 
     private static async IAsyncEnumerable<ChatChunkResponse> OnPostChatPromptAsync(
         PromptRequest prompt,
-        OpenAIClient client,
+        IAIClientService clientService,
         IOptions<AppSettings> options,
         [EnumeratorCancellation] CancellationToken cancellationToken)
     {
         var deploymentId = options.Value.AzureOpenAiChatGptDeployment;
+        ArgumentNullException.ThrowIfNullOrEmpty(deploymentId);
 
-        var response = await client.GetChatCompletionsStreamingAsync(
-            new ChatCompletionsOptions
-            {
-                DeploymentName = deploymentId,
-                Messages =
-                {
-                    new ChatRequestSystemMessage("""
-                        You're an AI assistant for developers, helping them write code more efficiently.
-                        You're name is **Blazor 📎 Clippy** and you're an expert Blazor developer.
-                        You're also an expert in ASP.NET Core, C#, TypeScript, and even JavaScript.
-                        You will always reply with a Markdown formatted response.
-                        """),
-                    new ChatRequestUserMessage("What's your name?"),
-                    new ChatRequestAssistantMessage("Hi, my name is **Blazor 📎 Clippy**! Nice to meet you."),
-                    new ChatRequestUserMessage(prompt.Prompt)
-                }
-            }, cancellationToken);
+        ChatCompletionOptions? chatCompletionOptions = null;
+        AsyncCollectionResult<StreamingChatCompletionUpdate> response = clientService
+            .GetChatClient(deploymentId)
+            .CompleteChatStreamingAsync(
+            [
+                new SystemChatMessage("""
+                    You're an AI assistant for developers, helping them write code more efficiently.
+                    You're name is **Blazor 📎 Clippy** and you're an expert Blazor developer.
+                    You're also an expert in ASP.NET Core, C#, TypeScript, and even JavaScript.
+                    You will always reply with a Markdown formatted response.
+                    """),
+                //new UserChatMessage("What's your name?"),
+                //new AssistantChatMessage("Hi, my name is **Blazor 📎 Clippy**! Nice to meet you."),
+                new UserChatMessage(prompt.Prompt)
+            ], chatCompletionOptions, cancellationToken);
 
-        await foreach (var choice in response.WithCancellation(cancellationToken))
+        await foreach (StreamingChatCompletionUpdate choice in response.WithCancellation(cancellationToken))
         {
-            if (choice.ContentUpdate is { Length: > 0 })
+            if (choice.ContentUpdate is { Count: > 0 })
             {
-                yield return new ChatChunkResponse(choice.ContentUpdate.Length, choice.ContentUpdate);
+                var contentUpdate = new StringBuilder();
+                foreach (ChatMessageContentPart part in choice.ContentUpdate)
+                {
+                    contentUpdate.Append(part.Text);
+                }
+
+                yield return new ChatChunkResponse(contentUpdate.Length, contentUpdate.ToString());
+                // Always have a delay after each return to simulate the streaming in the frontend
+                await Task.Delay(30);
             }
         }
     }
@@ -106,7 +122,7 @@ internal static class WebApplicationExtensions
         CancellationToken cancellationToken)
     {
         return chatService.ReplyOnYourDataStreamingAsync(
-                request.History, request.Overrides, cancellationToken);
+                request.History, request.Overrides);//, cancellationToken);
     }
 
     private static IResult OnGetCitationBaseUrl(
@@ -136,18 +152,27 @@ internal static class WebApplicationExtensions
     {
         await foreach (var blob in client.GetBlobsAsync(BlobTraits.Metadata, cancellationToken: cancellationToken))
         {
-            if (blob is not null and { Deleted: false })
+            if (blob is not null
+                and { Deleted: false })
             {
+                var metadata = blob.Metadata;
+                var documentProcessingStatus = GetMetadataEnumOrDefault<DocumentProcessingStatus>(
+                    metadata, nameof(DocumentProcessingStatus), DocumentProcessingStatus.NotProcessed);
+                if (documentProcessingStatus == DocumentProcessingStatus.NotProcessed_ToBeDeleted
+                    || documentProcessingStatus == DocumentProcessingStatus.Hidden)
+                {
+                    // We do not display to the documents list the documents that are for deletion
+                    // Or are marked as hidden
+                    continue;
+                }
+
+                var embeddingType = GetMetadataEnumOrDefault<EmbeddingType>(
+                    metadata, nameof(EmbeddingType), EmbeddingType.AzureSearch);
+
                 var props = blob.Properties;
                 var baseUri = client.Uri;
                 var builder = new UriBuilder(baseUri);
                 builder.Path += $"/{blob.Name}";
-
-                var metadata = blob.Metadata;
-                var documentProcessingStatus = GetMetadataEnumOrDefault<DocumentProcessingStatus>(
-                    metadata, nameof(DocumentProcessingStatus), DocumentProcessingStatus.NotProcessed);
-                var embeddingType = GetMetadataEnumOrDefault<EmbeddingType>(
-                    metadata, nameof(EmbeddingType), EmbeddingType.AzureSearch);
 
                 yield return new(
                     blob.Name,
@@ -169,19 +194,62 @@ internal static class WebApplicationExtensions
         }
     }
 
-    private static async Task<IResult> OnPostImagePromptAsync(
-        PromptRequest prompt,
-        OpenAIClient client,
+    private static async Task<IResult> OnGetDocumentAsync(
+        string documentName,
+        [FromServices] BlobContainerClient client,
         CancellationToken cancellationToken)
     {
-        var result = await client.GetImageGenerationsAsync(new ImageGenerationOptions
+        var blobClient = client.GetBlobClient(documentName);
+        if (await blobClient.ExistsAsync())
         {
-            Prompt = prompt.Prompt,
-        },
-        cancellationToken);
+            Response<BlobDownloadStreamingResult> blobResult = await blobClient.DownloadStreamingAsync(cancellationToken: cancellationToken);
 
-        var imageUrls = result.Value.Data.Select(i => i.Url).ToList();
-        var response = new ImageResponse(result.Value.Created, imageUrls);
+            var documentExtension = Path.GetExtension(documentName);
+            string contentType;
+            if (documentExtension == ".pdf")
+            {
+                contentType = "application/pdf";
+            }
+            else
+            {
+                // TODO: Implement the rest of the content types
+                contentType = "";
+            }
+
+            return Results.File(blobResult.Value.Content, contentType);
+
+            //using MemoryStream ms = new MemoryStream();
+            //blobResult.Value.Content.CopyTo(ms);
+
+            //var mimeType = "image/png";
+            //var path = @"path_to_png.png";
+            //return Results.File(path, contentType: mimeType);
+
+            //return TypedResults.Ok(ms.ToArray());
+        }
+
+        return TypedResults.NotFound($"""Document with name: {documentName} was not found""");
+    }
+
+    private static async Task<IResult> OnPostImagePromptAsync(
+        PromptRequest prompt,
+        IAIClientService clientService,
+        IOptions<AppSettings> options,
+        CancellationToken cancellationToken)
+    {
+        // TODO: Use the Image creation model name
+        var deploymentId = options.Value.AzureOpenAiChatGptDeployment;
+        ArgumentNullException.ThrowIfNullOrEmpty(deploymentId);
+
+        ImageGenerationOptions? imageGenerationOptions = null;
+
+        ClientResult<GeneratedImage> result = await clientService
+            .GetImageClient(deploymentId)
+            .GenerateImageAsync(prompt.Prompt, imageGenerationOptions, cancellationToken);
+
+        GeneratedImage generatedImage = result.Value;
+        Uri imageUrl = result.Value.ImageUri;
+        var response = new ImageResponse(DateTime.UtcNow, [generatedImage.ImageUri]);
 
         return TypedResults.Ok(response);
     }
