@@ -1,9 +1,10 @@
 ﻿@inherits LayoutComponentBase
 
 <MudThemeProvider @bind-IsDarkMode="@_isDarkTheme" Theme="_theme" />
+<MudPopoverProvider />
 <MudDialogProvider FullWidth="true" MaxWidth="MaxWidth.Small"
                    CloseButton="true"
-                   DisableBackdropClick="true"
+                   BackdropClick="false"
                    Position="DialogPosition.Center"
                    CloseOnEscapeKey="true" />
 <MudSnackbarProvider />

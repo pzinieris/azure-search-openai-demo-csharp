@@ -1,6 +1,7 @@
 ﻿using Microsoft.Extensions.Options;
 using Shared.Models.Settings;
 using Shared.Services;
+using Shared.Services.AI.Interface;
 using Shared.Services.Interfaces;
 
 namespace MinimalApi.Extensions;
@@ -56,38 +57,21 @@ internal static class ServiceCollectionExtensions
             return new DocumentAnalysisClient(new Uri(azureFromRecognizerServiceEndpoint), s_azureCredential);
         });
 
-        services.AddSingleton<OpenAIClient>(sp =>
+        services.AddSingleton<IAIClientService>(sp =>
         {
             var options = sp.GetRequiredService<IOptions<AppSettings>>();
             var settings = options.Value;
 
-            if (settings.UseAOAI)
-            {
-                var azureOpenAiServiceEndpoint = settings.AzureOpenAiServiceEndpoint;
-                ArgumentNullException.ThrowIfNullOrEmpty(azureOpenAiServiceEndpoint);
-
-                var openAIClient = new OpenAIClient(
-                    new Uri(azureOpenAiServiceEndpoint),
-                    //new AzureKeyCredential(azureOpenAiApiKey));
-                    s_azureCredential);
-
-                return openAIClient;
-            }
-            else
-            {
-                var openAIApiKey = settings.OpenAIApiKey;
-                ArgumentNullException.ThrowIfNullOrEmpty(openAIApiKey);
-
-                var openAIClient = new OpenAIClient(openAIApiKey);
-                return openAIClient;
-            }
+            return settings.UseAOAI
+                ? new Shared.Services.AI.AzureOpenAIClientService(settings)
+                : new Shared.Services.AI.OpenAIClientService(settings);
         });
 
         services.AddSingleton<AzureBlobStorageService>();
         services.AddSingleton<ReadRetrieveReadChatService>(sp =>
         {
             var logger = sp.GetRequiredService<ILogger<ReadRetrieveReadChatService>>();
-            var openAIClient = sp.GetRequiredService<OpenAIClient>();
+            var aiClient = sp.GetRequiredService<IAIClientService>();
             var searchClient = sp.GetRequiredService<ISearchService>();
 
             var options = sp.GetRequiredService<IOptions<AppSettings>>();
@@ -114,11 +98,11 @@ internal static class ServiceCollectionExtensions
 
                 var visionService = new AzureComputerVisionService(httpClient, azureComputerVisionServiceEndpoint,
                     azureComputerVisionServiceApiVersion, azureComputerVisionServiceModelVersion, s_azureCredential);
-                return new ReadRetrieveReadChatService(logger, searchClient, openAIClient, settings, visionService, s_azureCredential);
+                return new ReadRetrieveReadChatService(logger, searchClient, aiClient, settings, visionService, s_azureCredential);
             }
             else
             {
-                return new ReadRetrieveReadChatService(logger, searchClient, openAIClient, settings, tokenCredential: s_azureCredential);
+                return new ReadRetrieveReadChatService(logger, searchClient, aiClient, settings, tokenCredential: s_azureCredential);
             }
         });
 

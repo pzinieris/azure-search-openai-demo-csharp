@@ -1,11 +1,11 @@
-﻿using Azure.AI.OpenAI;
-using Azure.Core;
+﻿using Azure.Core;
 using Azure.Extensions.AspNetCore.Configuration.Secrets;
 using Microsoft.Extensions.Configuration;
 using Shared.Enum;
 using Shared.Factory;
 using Shared.Models.Settings;
 using Shared.Services;
+using Shared.Services.AI;
 using Shared.Services.Interfaces;
 
 var host = new HostBuilder()
@@ -38,7 +38,7 @@ var host = new HostBuilder()
                 : throw new ArgumentException($"Unable to parse URI from value: {(value != null ? value : "null")}");
 
 #if DEBUG
-        bool isLocal = true;
+        bool isLocal = false;
 #else
         bool isLocal = false;
 #endif
@@ -128,7 +128,7 @@ var host = new HostBuilder()
             var openaiEndPoint = appSettings.AzureOpenAiServiceEndpoint;
             ArgumentNullException.ThrowIfNullOrWhiteSpace(openaiEndPoint);
 
-            var openAIClient = new OpenAIClient(new Uri(openaiEndPoint), credential);
+            var azureOpenAIClientService = new AzureOpenAIClientService(appSettings);
 
             var searchClient = provider.GetRequiredService<SearchClient>();
             var searchIndexClient = provider.GetRequiredService<SearchIndexClient>();
@@ -138,6 +138,7 @@ var host = new HostBuilder()
 
             var blobContainerClientFactory = provider.GetRequiredService<BlobContainerClientFactory>();
             var corpusContainerClient = blobContainerClientFactory.GetBlobContainerClient(BlobContainerName.Corpus);
+            var documentsStorageContainerClient = blobContainerClientFactory.GetBlobContainerClient(BlobContainerName.Custom, appSettings.AzureStorageContainer);
 
             // Vision Service
             AzureComputerVisionService? visionService = null;
@@ -165,13 +166,14 @@ var host = new HostBuilder()
             }
 
             return new AzureSearchEmbedService(
-                openAIClient: openAIClient,
+                clientService: azureOpenAIClientService,
                 embeddingModelName: embeddingModelName,
                 searchClient: searchClient,
                 searchIndexName: searchIndexName,
                 searchIndexClient: searchIndexClient,
                 documentAnalysisClient: documentClient,
                 corpusContainerClient: corpusContainerClient,
+                documentsStorageContainerClient: documentsStorageContainerClient,
                 computerVisionService: visionService,
                 includeImageEmbeddingsField: true,
                 logger: logger);

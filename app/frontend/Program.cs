@@ -4,10 +4,11 @@ builder.RootComponents.Add<App>("#app");
 builder.RootComponents.Add<HeadOutlet>("head::after");
 
 builder.Services.Configure<AppSettings>(
-    builder.Configuration.GetSection(nameof(AppSettings)));
+builder.Configuration.GetSection(nameof(AppSettings)));
 builder.Services.AddHttpClient<ApiClient>(client =>
 {
     client.BaseAddress = new Uri(builder.HostEnvironment.BaseAddress);
+    //client.BaseAddress = new Uri("https://localhost:7181/");
 });
 builder.Services.AddScoped<OpenAIPromptQueue>();
 builder.Services.AddLocalStorageServices();

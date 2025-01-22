@@ -6,6 +6,7 @@ public sealed partial class Docs : IDisposable
 
     private MudForm _form = null!;
     private MudFileUpload<IReadOnlyList<IBrowserFile>> _fileUpload = null!;
+    private ICollection<IBrowserFile> _filesToUpload = null!;
     private Task _getDocumentsTask = null!;
     private bool _isLoadingDocuments = false;
     private bool _isUploadingDocuments = false;
@@ -30,7 +31,7 @@ public sealed partial class Docs : IDisposable
     [Inject]
     public required IJSRuntime JSRuntime { get; set; }
 
-    private bool FilesSelected => _fileUpload is { Files.Count: > 0 };
+    private bool FilesSelected => _filesToUpload is { Count: > 0 };
 
     protected override void OnInitialized() =>
         // Instead of awaiting this async enumerable here, let's capture it in a task
@@ -62,6 +63,21 @@ public sealed partial class Docs : IDisposable
         }
     }
 
+    private void MudFileUploadFilesChanged(IReadOnlyList<IBrowserFile> files)
+    {
+        if (files == null || !files.Any() || _filesToUpload == null)
+        {
+            _filesToUpload = files?.ToList() ?? new List<IBrowserFile>();
+        }
+        else
+        {
+            for (var x = 0; x < files.Count; x++)
+            {
+                _filesToUpload.Add(files[x]);
+            }
+        }
+    }
+
     private async Task SubmitFilesForUploadAsync()
     {
         if (!FilesSelected)
@@ -74,7 +90,7 @@ public sealed partial class Docs : IDisposable
         var cookie = await JSRuntime.InvokeAsync<string>("getCookie", "XSRF-TOKEN");
 
         var result = await Client.UploadDocumentsAsync(
-            _fileUpload.Files, MaxIndividualFileSize, cookie);
+            _filesToUpload, MaxIndividualFileSize, cookie);
 
         Logger.LogInformation("Result: {x}", result);
         _isUploadingDocuments = false;

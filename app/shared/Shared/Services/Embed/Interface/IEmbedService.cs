@@ -17,6 +17,14 @@ public interface IEmbedService : IDocumentParserService
     Task<bool> EmbedPDFBlobAsync(Stream blobStream, string blobName);
 
     /// <summary>
+    /// Embeds the pages that have tables that are split into multiple pages, and then deletes the source document.
+    /// </summary>
+    /// <param name="pdfBlobStream"></param>
+    /// <param name="blobName"></param>
+    /// <returns></returns>
+    Task<bool> EmbedPDFBlobPagesWithSplitTablesAsync(Stream pdfBlobStream, string blobName);
+
+    /// <summary>
     /// Embeds the given image blob into the embedding service.
     /// </summary>
     Task<bool> EmbedImageBlobAsync(Stream imageStream, string imageUrl, string imageName, CancellationToken ct = default);

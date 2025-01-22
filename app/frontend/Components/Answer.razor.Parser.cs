@@ -46,10 +46,19 @@ public sealed partial class Answer
                     var citation = new CitationDetails(part, citationBaseUrl, citationNumber);
                     citations.Add(citation);
                 }
-
+                // <MudChip T="string" Variant="Variant.Text" Color="Color.Info"
+                //Icon = "@icon" OnClick = "@(_ => OnShowCitation(citation))" >
+                //                        @($"{citation.Number}. {citation.Name}")
+                //                    </ MudChip >
+                //return $"""
+                //    <MudChip T="string" Variant="Variant.Text" Color="Color.Info" OnClick="@(_ => OnShowCitation({citationNumber}))">{citationNumber}</MudChip>
+                //    """;
                 return $"""
                     <sup class="mud-chip mud-chip-text mud-chip-color-info rounded pa-1">{citationNumber}</sup>
                     """;
+                //return $"""
+                //    <sup>{citationNumber}</sup>
+                //    """;
             }
         });
 

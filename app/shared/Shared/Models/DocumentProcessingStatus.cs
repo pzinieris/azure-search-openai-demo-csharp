@@ -4,5 +4,8 @@ public enum DocumentProcessingStatus
 {
     NotProcessed,
     Succeeded,
-    Failed
+    Failed,
+
+    NotProcessed_ToBeDeleted,
+    Hidden
 };
